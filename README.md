@@ -1,59 +1,70 @@
 # onprem-logs
 
-小型地端 AI 機房的日誌集中與保存。兩台 DGX Spark 與兩台 Proxmox VE 節點用 systemd 自帶的 `systemd-journal-upload` 把 journal 送到收集端，兩台 QuTS hero NAS 用 QuLog Center 內建的 Log Sender 送 syslog，收集端一個 VictoriaLogs 容器接兩種來源。節點與 NAS 上不裝任何新代理。熱資料留 90 天，每天把前一天的日誌匯出成 JSONL 寫進 NAS 的 WORM 共用資料夾（保留期暫定 180 天，待確認），附逐檔 sha256 與「行數等於查詢筆數」的對帳清單。
+English | [繁體中文](README.zh-TW.md)
 
-| 路徑 | 跑在哪 | 做什麼 |
+Log collection and retention for a small on-prem AI lab. Two DGX Spark nodes and two Proxmox VE nodes ship their journal with `systemd-journal-upload`, the uploader that comes with systemd. Two QuTS hero NAS send syslog with the sender built into QuLog Center. One VictoriaLogs container on the collector receives both. Nothing new is installed on the nodes or the NAS. Hot data is kept for 90 days. Every day the previous UTC day is exported as JSONL onto a WORM shared folder on the NAS (retention tentatively 180 days, to be confirmed against the site's records retention procedure), with a per-file sha256 and a manifest that proves the line count equals the query hit count.
+
+| Path | Runs on | What it does |
 |---|---|---|
-| `docker-compose.yml` | 收集端 VM | VictoriaLogs v1.52.0（釘 digest），journald 與 syslog 兩種接收器，90 天與 12 GiB 的保留上限，加入 onprem-metrics 的 compose 網路讓 Grafana 以 `victorialogs:9428` 連到 |
-| `collector/docker-user-allowlist.sh`、`onprem-logs-allowlist.service` | 收集端 VM | 只讓節點進 9428、NAS 進 514。Docker 發佈的埠不經 ufw，白名單要放在 DOCKER-USER 鏈 |
-| `collector/mnt-worm.mount` | 收集端 VM | 把 NAS 的 WORM 共用資料夾掛到 `/mnt/worm` |
-| `collector/prometheus-scrape.yml` | 併入 onprem-metrics | Prometheus 抓 VictoriaLogs 的 `/metrics`，映像沒有 shell，健康由 `up == 0` 看 |
-| `node/install-journal-upload.sh` | 每台 DGX Spark 與 PVE 節點 | 裝 `systemd-journal-remote`，確認 journal 持久化，寫 `journal-upload.conf`，啟用服務；`--from-now` 可略過既有歷史 |
-| `nas/qulog-log-sender.md` | 每台 NAS | QuLog Center Log Sender 的設定步驟、解析出的欄位、時區與 TLS 的條件 |
-| `archive/archive-day.sh` | 收集端，cron 每日 08:10（00:10 UTC） | 在本機暫存區逐小時匯出前一個 UTC 日每台主機的日誌成 `.jsonl.gz`，對帳相符才複製到 WORM，最後寫 `MANIFEST.tsv` 與 `SHA256SUMS`；已完成的日期拒絕覆寫 |
-| `archive/verify-archive.sh` | 收集端，cron 每日 08:20 與每季人工 | 驗 sha256、行數對帳、解壓後行數，`--against-live` 再向 VictoriaLogs 要一次當天筆數；`DRILLS=` 把結果寫進 drills.jsonl |
-| `grafana/datasource-victorialogs.yml` | 併入 onprem-metrics | Grafana 的 VictoriaLogs 資料源 |
-| `grafana/Dockerfile`、`fetch-plugin.sh`、`build.sh` | 收集端 VM | 把資料源外掛打進 Grafana 映像：base 釘 digest、外掛釘 sha256，啟動時不連外 |
-| `queries.md` | 文件 | Day 20 每條告警對應的 LogsQL，與幾個對帳用的統計 |
-| `retention.md` | 文件 | 來源、熱、封存三層的期限與依據，WORM 共用資料夾的設定 |
-| `collector.cron` | 收集端 | 兩行 cron |
-| `tests/smoke.sh` | CI 與本機 | 起一個暫時的 VictoriaLogs，送一筆 syslog 與一筆 journald，查回來，跑封存與驗證，模擬 WORM 鎖定後重跑與竄改偵測 |
+| `docker-compose.yml` | collector VM | VictoriaLogs v1.52.0 pinned by digest, journald and syslog receivers, 90-day and 12 GiB retention limits, joins the onprem-metrics compose network so Grafana reaches it as `victorialogs:9428` |
+| `collector/docker-user-allowlist.sh`, `onprem-logs-allowlist.service` | collector VM | Only the nodes may reach 9428 and only the NAS may reach 514. Ports published by Docker bypass ufw, so the allowlist lives in the DOCKER-USER chain |
+| `collector/mnt-worm.mount` | collector VM | Mounts the NAS WORM shared folder at `/mnt/worm` |
+| `collector/prometheus-scrape.yml` | merged into onprem-metrics | Prometheus scrapes VictoriaLogs `/metrics`; the image has no shell, so health is watched with `up == 0` |
+| `node/install-journal-upload.sh` | every DGX Spark and PVE node | Installs `systemd-journal-remote`, makes sure the journal is persistent, writes `journal-upload.conf`, enables the service; `--from-now` skips the existing history |
+| `nas/qulog-log-sender.md` | every NAS | QuLog Center sender setup, the fields that arrive, time zone and TLS notes (Traditional Chinese) |
+| `archive/archive-day.sh` | collector, cron 08:10 local (00:10 UTC) | Exports the previous UTC day per host, hour by hour, into a local staging area; copies to WORM only when every count matches, then writes `MANIFEST.tsv` and `SHA256SUMS`; refuses to touch a completed day |
+| `archive/verify-archive.sh` | collector, cron 08:20 and quarterly by hand | Checks sha256, lines equal hits, decompressed line counts; `--against-live` re-asks VictoriaLogs; `DRILLS=` appends the result to drills.jsonl |
+| `grafana/datasource-victorialogs.yml` | merged into onprem-metrics | The Grafana VictoriaLogs datasource |
+| `grafana/Dockerfile`, `fetch-plugin.sh`, `build.sh` | collector VM | Bakes the datasource plugin into the Grafana image: base pinned by digest, plugin pinned by sha256, nothing fetched at start |
+| `queries.md` | docs | LogsQL for each Day 20 alert, checked against field data (Traditional Chinese) |
+| `retention.md` | docs | Source, hot and archive tiers, their limits and the WORM settings (Traditional Chinese) |
+| `collector.cron` | collector | Two cron lines |
+| `tests/smoke.sh` | CI and local | Starts a throwaway VictoriaLogs, sends one syslog and one journald entry, queries them back, archives and verifies, simulates a WORM-locked rerun, a tampered file and an unreachable collector |
 
-## 為什麼不是 Graylog、Loki 或只用 QuLog Center
+## Why not Graylog, Loki, or QuLog Center alone
 
-見 Day 21 文章第一節。一句話，收集端是 2 vCPU 4 GB 的 VM，節點上不想再裝代理，封存要能被 WORM 鎖住且能對帳。
+Graylog needs MongoDB and OpenSearch next to it and does not fit a 2 vCPU, 4 GB collector. Loki needs an agent on every node. QuLog Center lives on the NAS, which is exactly the box that is gone for eight minutes when it reboots. VictoriaLogs ingests the journald export format natively, so the nodes need nothing but the uploader systemd already ships.
 
-## 快速開始
+## Things the field taught
+
+- Docker-published ports never reach ufw's INPUT rules. Restrict them in DOCKER-USER, matching the original port with `-m conntrack --ctorigdstport`, and publish on `0.0.0.0` only: a `[::]` listener is served by docker-proxy through INPUT.
+- `systemd-journal-upload.service` runs with `DynamicUser=yes`; there is no static user and the cursor lives in `/var/lib/private/systemd/journal-upload/state`.
+- VictoriaLogs drops anything older than its retention at ingestion (`vl_rows_dropped_total{reason="too_small_timestamp"}`), so a first upload of a long journal costs nothing beyond the retention window.
+- QuLog Center sends RFC 3164 over TCP and UDP and RFC 5424 only over TLS. RFC 3164 carries no time zone, so `-syslog.timezone` is required.
+- A single query's `sort` is capped by the container memory (about 122 MB at a 1 GiB limit); the archive exports hour by hour.
+- On a WORM share everything written is locked after the lock delay, including half-written temp files. Build and check the day locally, copy last.
+
+## Quick start
 
 ```sh
-# 收集端
+# collector
 docker compose up -d
-sudo install -m 0644 collector/onprem-logs-allowlist.default /etc/default/onprem-logs-allowlist   # 改成場域的節點與 NAS
+sudo install -m 0644 collector/onprem-logs-allowlist.default /etc/default/onprem-logs-allowlist   # set your nodes and NAS
 sudo install -m 0644 collector/onprem-logs-allowlist.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now onprem-logs-allowlist
 sudo install -m 0644 collector/mnt-worm.mount /etc/systemd/system/ && sudo systemctl enable --now mnt-worm.mount
 sudo install -d -o metrics /var/log/onprem-logs /srv/drills/onprem-logs /var/tmp/onprem-logs-stage
 sudo install -m 0644 collector.cron /etc/cron.d/onprem-logs
 
-# 每台節點（DGX Spark、PVE）
+# every node (DGX Spark, PVE)
 sudo ./node/install-journal-upload.sh http://192.168.2.49:9428
 
-# 每台 NAS 依 nas/qulog-log-sender.md 設定記錄傳送端
+# every NAS: follow nas/qulog-log-sender.md
 
-# Grafana：建映像，onprem-metrics 的 grafana 服務改用它
+# Grafana: build the image and point onprem-metrics' grafana service at it
 sudo ./grafana/build.sh
 
-# 回到收集端
+# back on the collector
 curl -s http://127.0.0.1:9428/select/logsql/query -d 'query=_time:5m | stats by (_HOSTNAME, hostname) count()'
 ```
 
-## 測試
+## Tests
 
 ```sh
 shellcheck -s sh archive/*.sh node/*.sh collector/*.sh grafana/*.sh tests/smoke.sh
-VLBIN=/path/to/victoria-logs-prod sh tests/smoke.sh    # 或不設 VLBIN 用 docker
+VLBIN=/path/to/victoria-logs-prod sh tests/smoke.sh    # or leave VLBIN unset to use docker
 ```
 
-## 授權
+## License
 
 Apache-2.0
