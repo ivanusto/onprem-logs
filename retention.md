@@ -4,27 +4,48 @@
 
 | 層 | 在哪 | 期限 | 回答的問題 | 誰能刪 |
 |---|---|---|---|---|
-| 來源 | 各節點 journald（`Storage=persistent`，`SystemMaxUse=2G`）、NAS 的 QuLog Center | 到容量上限為止 | 收集端斷線期間的日誌還在嗎 | 節點 root |
+| 來源 | 各節點 journald（持久化，`/var/log/journal`）、NAS 的 QuLog Center | 到容量上限為止（journald 預設為檔案系統的 10 %，上限 4 GiB） | 收集端斷線期間的日誌還在嗎 | 節點 root |
 | 熱 | 收集端 VictoriaLogs，`-retentionPeriod=90d`，`-retention.maxDiskSpaceUsageBytes=12GiB` | 90 天，與 Prometheus 一致 | 告警那一刻前後發生了什麼 | 收集端 root，到期自動 |
-| 封存 | QuTS hero WORM 共用資料夾，每日一目錄，`archive-day.sh` | 待確認，預設 400 天 | 一年前某天的紀錄能不能拿出來且證明沒改過 | 沒有人，到期由 WORM 保留期釋放 |
+| 封存 | QuTS hero WORM 共用資料夾 `LogArchive`，每日一目錄，`archive-day.sh` | **暫定 180 天，待確認** | 半年前某天的紀錄能不能拿出來且證明沒改過 | 沒有人，到期由 WORM 保留期釋放 |
 
 ## 數字的來源
 
-90 天沿用 Day 19 的 Prometheus 保留期，同一段時間裡指標與日誌都查得到，Day 20 的告警註記才能跳到日誌。12 GiB 是收集端 32 GiB 磁碟扣掉 Prometheus 的 3.6 GiB 與系統之後的保守值，容量上限先於天數上限觸發時 VictoriaLogs 會刪最舊的分割，不會停止寫入。400 天是「一年加一個季度的稽核窗口」，ISO 27001 本身不規定天數，由組織的紀錄保存程序定，這一格請以場域的程序為準。
+90 天沿用 Day 19 的 Prometheus 保留期，同一段時間裡指標與日誌都查得到，Day 20 的告警註記才能跳到日誌。VictoriaLogs 收到早於保留期的資料會直接丟棄（`vl_rows_dropped_total{reason="too_small_timestamp"}`），所以節點第一次上傳整份 journal 時，90 天以前的部分不會佔空間。
+
+12 GiB 是收集端 32 GiB 磁碟扣掉 Prometheus 與系統之後的保守值。容量上限先於天數上限觸發時，VictoriaLogs 會刪最舊的分割，不會停止寫入。哪一個先到要看場域的日量，算法與實測值見 Day 21 文章第四節。
+
+封存的 180 天是暫定值，參照 ISO 27001 稽核實務的一般要求（標準本身不規定天數），**請依場域的紀錄保存程序定**。WORM 的保留期建立後只能延長，不能縮短，所以先取較短的值，確認後再延長。
 
 ## WORM 共用資料夾的設定
 
-QuTS hero 建共用資料夾時勾 WORM，類型 Enterprise，保留期與上表一致。觸發方式選「寫入後自動鎖定」並給一個短的等待時間（待確認選項名稱與最小值），`archive-day.sh` 在那段時間內完成寫檔與改名，之後任何修改與刪除都被拒。Day 16 在 HDP 的 WORM 資料夾上實測過 root 的 rm、mv、chmod、touch 全部 Operation not permitted，這裡是同一個機制。
+在 QuTS hero 6.0.2 的「儲存空間總管 → 建立 → 共用資料夾 → 進階設定 → 安全性設定」：
 
-收集端以 NFS 唯寫掛載這個共用資料夾到 `/mnt/worm`，Day 13 的掛載選項，加 `noexec,nosuid`。
+| 欄位 | 值 | 說明 |
+|---|---|---|
+| WORM (一寫多讀) | 啟用 | 建立後就無法停用或修改 WORM 屬性與類型 |
+| 模式 | 企業等級 | 可經「安全刪除」流程移除整個資料夾；法規等級連資料夾都不能移除，只能刪整個儲存池 |
+| 鎖定設定 | 在這段時間後自動鎖定：0 小時 10 分鐘 | 另一個選項是「手動鎖定 (設定檔案權限為唯讀)」。延遲最短 1 分鐘、最長 168 小時 59 分，誤差 ±1 分鐘，期間內再修改會重新計時，建立後不能改 |
+| 設定保留期間 | 啟用，180 天 | 不啟用時檔案鎖定後沒有到期日 |
+
+NFS 主機存取只給收集端，讀取/寫入，Squash 所有使用者，匿名 UID/GID 對到 NAS 上一個對此資料夾有寫入權的帳號，收集端以哪個 uid 寫都一樣。收集端以 `collector/mnt-worm.mount` 掛到 `/mnt/worm`（`noexec,nosuid,nodev`）。
+
+### 鎖定延遲與封存腳本
+
+鎖定延遲內檔案還能改、能刪（場域實測：寫入後立刻 `rm` 成功）；過了延遲，任何人都改不了、刪不掉，包括寫壞的半成品。所以 `archive-day.sh` 先在收集端本機的 `$STAGE` 匯出、壓縮、對帳、算 sha256，全部相符才一次複製到 WORM，順序是資料檔、`MANIFEST.tsv`、最後 `SHA256SUMS`。`SHA256SUMS` 存在就代表那一天完整；有檔案但沒有 `SHA256SUMS` 代表複製中斷，腳本拒絕再寫並以 4 結束，交由人工記錄缺口。
+
+10 分鐘的延遲對這個流程是寬裕的：場域一天 4 個來源、約 33 萬行、18 MB，從匯出到複製完成 14 秒，複製本身不到 1 秒。
 
 ## 每天的流程
 
+收集端時區是 Asia/Taipei，cron 用本地時間。
+
 ```
-02:10  cron  archive-day.sh            # 昨天 UTC 的日誌，每台主機一個檔，MANIFEST.tsv 與 SHA256SUMS
-02:20  cron  verify-archive.sh --against-live   # 立刻驗一次，結果進 drills.jsonl 的 logs 來源
-每季   人工  verify-archive.sh <一年前的某天>    # 不帶 --against-live，只驗檔案，這是 Day 28 的演練項目之一
+08:10  cron  archive-day.sh                      # 00:10 UTC，剛結束的那個 UTC 日，每台主機一個檔
+08:20  cron  verify-archive.sh --against-live    # 立刻驗一次，結果寫進 drills.jsonl 的 logs 來源
+每季   人工  verify-archive.sh <半年內的某天>      # 不帶 --against-live，只驗檔案，這是 Day 28 的演練項目之一
 ```
+
+驗證結果以 `DRILLS=/srv/drills/onprem-logs/drills.jsonl` 寫一行，onprem-metrics 的 `drills-textfile.py` 讀成 `drill_last_result{source="logs"}`，Day 20 的 `DrillFailed` 因此也涵蓋封存。
 
 MANIFEST 的 `lines` 與 `hits` 相等是完整性的證據，檔案的 sha256 在 SHA256SUMS 裡，SHA256SUMS 自己在 WORM 上。三者合起來回答稽核的兩個問題，當天收到的全部都在，寫進去之後沒有人動過。
 

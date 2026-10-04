@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -s sh archive/archive-day.sh archive/verify-archive.sh node/install-journal-upload.sh tests/smoke.sh
+      - run: shellcheck -s sh archive/*.sh node/*.sh collector/*.sh grafana/*.sh tests/smoke.sh
       - run: docker compose -f docker-compose.yml config -q || true   # external network is absent in CI
       - name: smoke (VictoriaLogs in docker, syslog + journald in, archive + verify out)
         run: sh tests/smoke.sh
