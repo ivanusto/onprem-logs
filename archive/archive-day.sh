@@ -56,7 +56,7 @@ mkdir -p "$st"
 # request would read as "no hosts" or "0 hits" and a source would silently
 # go missing from the archive.
 values() { # $1 field_values response
-  printf '%s' "$2" | python3 -c 'import json,sys;[print(v["value"]) for v in json.load(sys.stdin)["values"] if v["value"]]'
+  printf '%s' "$1" | python3 -c 'import json,sys;[print(v["value"]) for v in json.load(sys.stdin)["values"] if v["value"]]'
 }
 resp=$($CURL "$VL/select/logsql/field_values" -d "query=_time:[$start,$end) _HOSTNAME:*" -d "field=_HOSTNAME")
 hosts_j=$(values "$resp")
