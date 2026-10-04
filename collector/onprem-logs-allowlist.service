@@ -1,0 +1,16 @@
+# /etc/systemd/system/onprem-logs-allowlist.service
+# Re-applies the DOCKER-USER allowlist whenever Docker (re)creates its chains.
+[Unit]
+Description=onprem-logs: only log sources may reach VictoriaLogs
+After=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/default/onprem-logs-allowlist
+ExecStart=/opt/onprem-logs/collector/docker-user-allowlist.sh apply
+ExecStop=/opt/onprem-logs/collector/docker-user-allowlist.sh remove
+
+[Install]
+WantedBy=docker.service

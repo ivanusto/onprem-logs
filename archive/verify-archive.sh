@@ -7,11 +7,15 @@
 # per source, which only works while the day is inside the hot retention.
 #
 #   verify-archive.sh YYYY-MM-DD [--against-live]
+#
+# DRILLS   optional path of a drills.jsonl; one line per run is appended so
+#          onprem-metrics' drills-textfile.py exposes the result (Day 20's
+#          DrillFailed alert then covers the archive too)
 set -eu
 
 VL=${VL:-http://127.0.0.1:9428}
 ARCHIVE=${ARCHIVE:-/mnt/worm/logs}
-day=${1:-}; [ -n "$day" ] || { sed -n '2,11p' "$0"; exit 64; }
+day=${1:-}; [ -n "$day" ] || { sed -n '2,15p' "$0"; exit 64; }
 live=0; [ "${2:-}" = "--against-live" ] && live=1
 dir="$ARCHIVE/$(printf '%s' "$day" | tr - /)"
 [ -s "$dir/MANIFEST.tsv" ] || { echo "no manifest in $dir" >&2; exit 2; }
@@ -41,5 +45,11 @@ grep -v '^#' "$dir/MANIFEST.tsv" | while IFS="$(printf '\t')" read -r name lines
 done
 [ -s "$fail" ] && rc=1
 rm -f "$fail"
-if [ "$rc" -eq 0 ]; then echo "verify   : OK $day"; else echo "verify   : FAILED $day"; fi
+if [ "$rc" -eq 0 ]; then result=OK; else result=FAIL; fi
+echo "verify   : $result $day"
+if [ -n "${DRILLS:-}" ]; then
+  if [ "$live" -eq 1 ]; then label="daily archive verify"; else label="archive spot check"; fi
+  printf '{"t0":"%s","label":"%s","day":"%s","live":%s,"result":"%s","code":%s}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$label" "$day" "$live" "$result" "$rc" >> "$DRILLS"
+fi
 exit "$rc"

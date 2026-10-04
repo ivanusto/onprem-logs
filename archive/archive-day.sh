@@ -10,6 +10,8 @@
 #   VL        VictoriaLogs base URL, default http://127.0.0.1:9428
 #   ARCHIVE   root of the archive, default /mnt/worm/logs
 #             (a QuTS hero WORM share mounted on the collector, see retention.md)
+#   STAGE     local scratch directory, default /var/tmp/onprem-logs-stage
+#   FORCE     set to 1 to publish a day whose lines != hits (recorded as such)
 #
 # Layout
 #   $ARCHIVE/2026/10/03/journald-pve1.jsonl.gz
@@ -17,46 +19,60 @@
 #   $ARCHIVE/2026/10/03/MANIFEST.tsv       source  lines  hits  bytes  sha256
 #   $ARCHIVE/2026/10/03/SHA256SUMS
 #
-# Files are written to a temp name and renamed into place. On a WORM share
-# the rename is the last write that will ever succeed on that path, so the
-# manifest is written after every data file is final.
+# Everything is built and checked in $STAGE first. Only a complete, matching
+# set is copied to the WORM share: data files, then MANIFEST.tsv, then
+# SHA256SUMS. On a WORM share every file is locked a few minutes after its
+# last write and can never be removed, so nothing temporary is ever written
+# there, and SHA256SUMS is the marker that the day is complete.
 set -eu
 
 VL=${VL:-http://127.0.0.1:9428}
 ARCHIVE=${ARCHIVE:-/mnt/worm/logs}
+STAGE=${STAGE:-/var/tmp/onprem-logs-stage}
+FORCE=${FORCE:-0}
 CURL="curl -sS --fail --max-time 600"
 
 day=${1:-$(date -u -d yesterday +%Y-%m-%d)}
 start="${day}T00:00:00Z"
 end=$(date -u -d "$day + 1 day" +%Y-%m-%dT00:00:00Z)
-dir="$ARCHIVE/$(printf '%s' "$day" | tr - /)"
-mkdir -p "$dir"
-if [ -s "$dir/MANIFEST.tsv" ]; then
-  echo "archive-day: $dir already has a manifest, refusing to overwrite (WORM)" >&2
+rel=$(printf '%s' "$day" | tr - /)
+dir="$ARCHIVE/$rel"
+if [ -e "$dir/SHA256SUMS" ]; then
+  echo "archive-day: $dir is complete, refusing to overwrite (WORM)" >&2
   exit 3
 fi
+if [ -d "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
+  echo "archive-day: $dir has files but no SHA256SUMS, a previous copy was interrupted;" >&2
+  echo "             the files there are locked, inspect them and record the gap by hand" >&2
+  exit 4
+fi
+st="$STAGE/$day"
+rm -rf "$st"
+mkdir -p "$st"
 
 # Each source is one file. journald rows carry _HOSTNAME, syslog rows carry
 # hostname; discover both lists for the day so a new host appears by itself.
-hosts_j=$($CURL "$VL/select/logsql/field_values" -d "query=_time:[$start,$end) _HOSTNAME:*" -d 'field=_HOSTNAME' \
-          | python3 -c 'import json,sys;[print(v["value"]) for v in json.load(sys.stdin)["values"] if v["value"]]')
-hosts_s=$($CURL "$VL/select/logsql/field_values" -d "query=_time:[$start,$end) hostname:*" -d 'field=hostname' \
-          | python3 -c 'import json,sys;[print(v["value"]) for v in json.load(sys.stdin)["values"] if v["value"]]')
+values() { # $1 field
+  $CURL "$VL/select/logsql/field_values" -d "query=_time:[$start,$end) $1:*" -d "field=$1" \
+    | python3 -c 'import json,sys;[print(v["value"]) for v in json.load(sys.stdin)["values"] if v["value"]]'
+}
+hosts_j=$(values _HOSTNAME)
+hosts_s=$(values hostname)
 
-: > "$dir/.MANIFEST.tmp"
+: > "$st/.rows"
 total=0
+status=0
 export_one() { # $1 source name  $2 LogsQL filter
   name=$1; filter=$2
   hits=$($CURL "$VL/select/logsql/query" -d "query=_time:[$start,$end) $filter | stats count() as n" \
          | python3 -c 'import json,sys;l=sys.stdin.readline();print(json.loads(l)["n"] if l.strip() else 0)')
   [ "$hits" -gt 0 ] || return 0
-  tmp="$dir/.$name.jsonl.gz.tmp"
-  $CURL "$VL/select/logsql/query" -d "query=_time:[$start,$end) $filter | sort by (_time)" | gzip -9 > "$tmp"
-  lines=$(gzip -dc "$tmp" | wc -l | tr -d ' ')
-  mv "$tmp" "$dir/$name.jsonl.gz"
-  bytes=$(stat -c %s "$dir/$name.jsonl.gz")
-  sum=$(sha256sum "$dir/$name.jsonl.gz" | cut -d' ' -f1)
-  printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$lines" "$hits" "$bytes" "$sum" >> "$dir/.MANIFEST.tmp"
+  f="$st/$name.jsonl.gz"
+  $CURL "$VL/select/logsql/query" -d "query=_time:[$start,$end) $filter | sort by (_time)" | gzip -9 > "$f"
+  lines=$(gzip -dc "$f" | wc -l | tr -d ' ')
+  bytes=$(stat -c %s "$f")
+  sum=$(sha256sum "$f" | cut -d' ' -f1)
+  printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$lines" "$hits" "$bytes" "$sum" >> "$st/.rows"
   if [ "$lines" -ne "$hits" ]; then
     echo "archive-day: $name lines=$lines hits=$hits MISMATCH" >&2
     status=1
@@ -65,23 +81,36 @@ export_one() { # $1 source name  $2 LogsQL filter
   printf '%-32s %10s lines %10s bytes\n' "$name" "$lines" "$bytes"
 }
 
-status=0
 for h in $hosts_j; do export_one "journald-$h" "_HOSTNAME:=\"$h\""; done
 for h in $hosts_s; do export_one "syslog-$h"   "hostname:=\"$h\""; done
 
-if [ ! -s "$dir/.MANIFEST.tmp" ]; then
+if [ ! -s "$st/.rows" ]; then
   echo "archive-day: no logs for $day" >&2
-  rm -f "$dir/.MANIFEST.tmp"
+  rm -rf "$st"
   exit 2
+fi
+if [ "$status" -ne 0 ] && [ "$FORCE" != 1 ]; then
+  echo "archive-day: not publishing $day, staged files kept in $st; rerun, or FORCE=1 to publish as is" >&2
+  exit 1
 fi
 {
   printf '# onprem-logs archive  day=%s  range=[%s,%s)  written=%s  host=%s  vl=%s\n' \
     "$day" "$start" "$end" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(hostname)" "$VL"
   printf '# source\tlines\thits\tbytes\tsha256\n'
-  cat "$dir/.MANIFEST.tmp"
-} > "$dir/MANIFEST.tsv"
-rm -f "$dir/.MANIFEST.tmp"
-( cd "$dir" && sha256sum ./*.jsonl.gz MANIFEST.tsv > SHA256SUMS )
+  cat "$st/.rows"
+} > "$st/MANIFEST.tsv"
+( cd "$st" && sha256sum ./*.jsonl.gz MANIFEST.tsv > SHA256SUMS )
+
+# publish: data files, manifest, checksums last
+mkdir -p "$dir"
+for f in "$st"/*.jsonl.gz "$st/MANIFEST.tsv" "$st/SHA256SUMS"; do
+  cp "$f" "$dir/"
+done
+if ! ( cd "$dir" && sha256sum -c --quiet SHA256SUMS ); then
+  echo "archive-day: copy to $dir does not match the staged files" >&2
+  exit 5
+fi
+rm -rf "$st"
 printf 'archive-day: %s  %s sources  %s lines  -> %s  (status %s)\n' \
   "$day" "$(grep -vc '^#' "$dir/MANIFEST.tsv")" "$total" "$dir" "$status"
 exit "$status"
