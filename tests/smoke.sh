@@ -45,5 +45,7 @@ rc=0; "$here/archive/verify-archive.sh" "$day" >/dev/null || rc=$?
 [ "$rc" = 1 ] || { echo "tampered archive: expected exit 1, got $rc"; exit 1; }
 # collector unreachable: must fail and write nothing to the archive
 rc=0; VL=http://127.0.0.1:1 "$here/archive/archive-day.sh" 2000-01-01 2>/dev/null || rc=$?
-[ "$rc" != 0 ] && [ ! -e "$tmp/arch/2000" ] || { echo "dead collector: expected failure and no files, got rc=$rc"; exit 1; }
+if [ "$rc" = 0 ] || [ -e "$tmp/arch/2000" ]; then
+  echo "dead collector: expected failure and no files, got rc=$rc"; exit 1
+fi
 echo "smoke: OK"
