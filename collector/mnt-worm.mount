@@ -1,0 +1,17 @@
+# /etc/systemd/system/mnt-worm.mount on the collector: the QuTS hero WORM
+# share that archive-day.sh writes to. The NAS exports it to this host only,
+# read-write, all_squash to one NAS account, so the collector's uid does not
+# matter. A plain mount unit, not an automount (Day 13's ordering trap).
+[Unit]
+Description=onprem-logs WORM archive (NAS LogArchive)
+Wants=network-online.target
+After=network-online.target
+
+[Mount]
+What=192.168.2.2:/LogArchive
+Where=/mnt/worm
+Type=nfs4
+Options=rw,hard,timeo=600,retrans=2,noatime,nofail,vers=4.1,noexec,nosuid,nodev
+
+[Install]
+WantedBy=remote-fs.target
