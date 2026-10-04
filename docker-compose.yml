@@ -1,10 +1,9 @@
 # Log store for the collector VM. Joins the onprem-metrics compose network
-# so Grafana there reaches it as victorialogs:9428. Image digest: run
-# `docker buildx imagetools inspect victoriametrics/victoria-logs:v1.52.0`
-# on the collector and pin it the Day 3 way before the first `compose up`.
+# so Grafana there reaches it as victorialogs:9428. Image pinned the Day 3
+# way (multi-arch index digest, checked 2026-10-04).
 services:
   victorialogs:
-    image: victoriametrics/victoria-logs:v1.52.0
+    image: victoriametrics/victoria-logs:v1.52.0@sha256:47b820890d64c4575a2a0a46415dcd8a4fd59a0f1fcd6a377693d7aea639442e
     command:
       - -storageDataPath=/victoria-logs-data
       - -retentionPeriod=90d                       # hot copy, same window as Prometheus
@@ -22,8 +21,8 @@ services:
       - -syslog.timezone=Asia/Taipei              # RFC 3164 has no zone; QuLog sends local time (待確認)
       - -loggerFormat=json
     ports:
-      # reachable from the nodes and the NAS, so bound on the LAN address; ufw
-      # on the collector allows 9428/tcp and 514/tcp+udp from those hosts only
+      # reachable from the nodes and the NAS. ufw does not see published
+      # ports; collector/docker-user-allowlist.sh limits who gets through
       - "9428:9428"
       - "514:514/tcp"
       - "514:514/udp"
@@ -33,11 +32,8 @@ services:
     deploy:
       resources:
         limits: {memory: 1g}
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9428/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+    # no healthcheck: the image is FROM scratch (no shell, no wget); health
+    # is watched from outside, Prometheus scrapes victorialogs:9428/metrics
 
 volumes:
   victorialogs-data:
