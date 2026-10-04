@@ -43,4 +43,7 @@ gzip -dc "$d/syslog-nas-test.jsonl.gz" | head -0 | gzip > "$d/syslog-nas-test.js
 mv "$d/syslog-nas-test.jsonl.gz.new" "$d/syslog-nas-test.jsonl.gz"
 rc=0; "$here/archive/verify-archive.sh" "$day" >/dev/null || rc=$?
 [ "$rc" = 1 ] || { echo "tampered archive: expected exit 1, got $rc"; exit 1; }
+# collector unreachable: must fail and write nothing to the archive
+rc=0; VL=http://127.0.0.1:1 "$here/archive/archive-day.sh" 2000-01-01 2>/dev/null || rc=$?
+[ "$rc" != 0 ] && [ ! -e "$tmp/arch/2000" ] || { echo "dead collector: expected failure and no files, got rc=$rc"; exit 1; }
 echo "smoke: OK"

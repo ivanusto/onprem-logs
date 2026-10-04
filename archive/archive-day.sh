@@ -52,20 +52,24 @@ mkdir -p "$st"
 
 # Each source is one file. journald rows carry _HOSTNAME, syslog rows carry
 # hostname; discover both lists for the day so a new host appears by itself.
-values() { # $1 field
-  $CURL "$VL/select/logsql/field_values" -d "query=_time:[$start,$end) $1:*" -d "field=$1" \
-    | python3 -c 'import json,sys;[print(v["value"]) for v in json.load(sys.stdin)["values"] if v["value"]]'
+# Every request goes into a variable first: in `curl | python3` a failed
+# request would read as "no hosts" or "0 hits" and a source would silently
+# go missing from the archive.
+values() { # $1 field_values response
+  printf '%s' "$2" | python3 -c 'import json,sys;[print(v["value"]) for v in json.load(sys.stdin)["values"] if v["value"]]'
 }
-hosts_j=$(values _HOSTNAME)
-hosts_s=$(values hostname)
+resp=$($CURL "$VL/select/logsql/field_values" -d "query=_time:[$start,$end) _HOSTNAME:*" -d "field=_HOSTNAME")
+hosts_j=$(values "$resp")
+resp=$($CURL "$VL/select/logsql/field_values" -d "query=_time:[$start,$end) hostname:*" -d "field=hostname")
+hosts_s=$(values "$resp")
 
 : > "$st/.rows"
 total=0
 status=0
 export_one() { # $1 source name  $2 LogsQL filter
   name=$1; filter=$2
-  hits=$($CURL "$VL/select/logsql/query" -d "query=_time:[$start,$end) $filter | stats count() as n" \
-         | python3 -c 'import json,sys;l=sys.stdin.readline();print(json.loads(l)["n"] if l.strip() else 0)')
+  resp=$($CURL "$VL/select/logsql/query" -d "query=_time:[$start,$end) $filter | stats count() as n")
+  hits=$(printf '%s\n' "$resp" | python3 -c 'import json,sys;l=sys.stdin.readline();print(json.loads(l)["n"] if l.strip() else 0)')
   [ "$hits" -gt 0 ] || return 0
   f="$st/$name.jsonl.gz"
   # one query per hour: `sort` runs in VictoriaLogs' memory and a whole day

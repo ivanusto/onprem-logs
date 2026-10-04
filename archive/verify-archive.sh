@@ -36,8 +36,12 @@ grep -v '^#' "$dir/MANIFEST.tsv" | while IFS="$(printf '\t')" read -r name lines
       journald-*) f="_HOSTNAME:=\"${name#journald-}\"" ;;
       syslog-*)   f="hostname:=\"${name#syslog-}\"" ;;
     esac
-    live_hits=$(curl -sS --fail "$VL/select/logsql/query" -d "query=_time:[$start,$end) $f | stats count() as n" \
-                | python3 -c 'import json,sys;l=sys.stdin.readline();print(json.loads(l)["n"] if l.strip() else 0)')
+    # a failed request must not read as 0
+    if resp=$(curl -sS --fail "$VL/select/logsql/query" -d "query=_time:[$start,$end) $f | stats count() as n"); then
+      live_hits=$(printf '%s\n' "$resp" | python3 -c 'import json,sys;l=sys.stdin.readline();print(json.loads(l)["n"] if l.strip() else 0)')
+    else
+      live_hits="query-failed"
+    fi
     [ "$live_hits" = "$hits" ] || s="$s live=$live_hits"
   fi
   printf '%-32s lines=%-8s hits=%-8s %s\n' "$name" "$lines" "$hits" "$s"
