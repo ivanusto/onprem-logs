@@ -1,0 +1,4 @@
+# /etc/cron.d/onprem-logs on the collector host. Times are UTC. The archive
+# runs after the day is closed and after onprem-metrics' drills refresh.
+10 2 * * * metrics VL=http://127.0.0.1:9428 ARCHIVE=/mnt/worm/logs /opt/onprem-logs/archive/archive-day.sh >> /var/log/onprem-logs/archive.log 2>&1
+20 2 * * * metrics VL=http://127.0.0.1:9428 ARCHIVE=/mnt/worm/logs /opt/onprem-logs/archive/verify-archive.sh "$(date -u -d yesterday +\%Y-\%m-\%d)" --against-live >> /var/log/onprem-logs/verify.log 2>&1

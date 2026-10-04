@@ -1,0 +1,15 @@
+# Drop into onprem-metrics/grafana/provisioning/datasources/ and add
+#   GF_INSTALL_PLUGINS: victoriametrics-logs-datasource
+# to the grafana service in onprem-metrics/docker-compose.yml (the plugin is
+# signed and in the Grafana catalog; version is pinned at install by the
+# catalog's current release, note it in the change record).
+apiVersion: 1
+datasources:
+  - name: VictoriaLogs
+    uid: victorialogs
+    type: victoriametrics-logs-datasource
+    access: proxy
+    url: http://victorialogs:9428
+    editable: false
+    jsonData:
+      maxLines: 1000

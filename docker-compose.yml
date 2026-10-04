@@ -1,0 +1,48 @@
+# Log store for the collector VM. Joins the onprem-metrics compose network
+# so Grafana there reaches it as victorialogs:9428. Image digest: run
+# `docker buildx imagetools inspect victoriametrics/victoria-logs:v1.52.0`
+# on the collector and pin it the Day 3 way before the first `compose up`.
+services:
+  victorialogs:
+    image: victoriametrics/victoria-logs:v1.52.0
+    command:
+      - -storageDataPath=/victoria-logs-data
+      - -retentionPeriod=90d                       # hot copy, same window as Prometheus
+      - -retention.maxDiskSpaceUsageBytes=12GiB    # 32 GiB VM; archive lives on the NAS
+      - -httpListenAddr=:9428
+      # journald from DGX Spark and PVE nodes (systemd-journal-upload)
+      - -journald.streamFields=_HOSTNAME,_SYSTEMD_UNIT
+      - -journald.ignoreFields=_CAP_EFFECTIVE,_SYSTEMD_INVOCATION_ID,_SOURCE_MONOTONIC_TIMESTAMP,__MONOTONIC_TIMESTAMP,_BOOT_ID
+      - -journald.useRemoteIP=true
+      # syslog from QuLog Center Log Sender (and anything else that speaks RFC 3164/5424)
+      - -syslog.listenAddr.tcp=:514
+      - -syslog.listenAddr.udp=:514
+      - -syslog.streamFields.tcp=["hostname","app_name"]
+      - -syslog.streamFields.udp=["hostname","app_name"]
+      - -syslog.timezone=Asia/Taipei              # RFC 3164 has no zone; QuLog sends local time (待確認)
+      - -loggerFormat=json
+    ports:
+      # reachable from the nodes and the NAS, so bound on the LAN address; ufw
+      # on the collector allows 9428/tcp and 514/tcp+udp from those hosts only
+      - "9428:9428"
+      - "514:514/tcp"
+      - "514:514/udp"
+    volumes:
+      - victorialogs-data:/victoria-logs-data
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: {memory: 1g}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9428/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  victorialogs-data:
+
+networks:
+  default:
+    name: onprem-metrics_default
+    external: true
