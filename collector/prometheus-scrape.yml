@@ -1,0 +1,6 @@
+# Append under scrape_configs in onprem-metrics/prometheus/prometheus.yml.
+# Day 20's generic `up == 0` rule then covers the log store too, which
+# replaces the container healthcheck the scratch image cannot run.
+  - job_name: victorialogs
+    static_configs:
+      - targets: ["victorialogs:9428"]
