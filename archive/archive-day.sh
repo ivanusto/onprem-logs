@@ -68,7 +68,19 @@ export_one() { # $1 source name  $2 LogsQL filter
          | python3 -c 'import json,sys;l=sys.stdin.readline();print(json.loads(l)["n"] if l.strip() else 0)')
   [ "$hits" -gt 0 ] || return 0
   f="$st/$name.jsonl.gz"
-  $CURL "$VL/select/logsql/query" -d "query=_time:[$start,$end) $filter | sort by (_time)" | gzip -9 > "$f"
+  # one query per hour: `sort` runs in VictoriaLogs' memory and a whole day
+  # of a busy host does not fit (the query fails with HTTP 400). Each hour is
+  # sorted and appended in order. curl writes to a file rather than a pipe so
+  # a failed request stops the script instead of leaving a short file.
+  : > "$st/$name.jsonl"
+  h=0
+  while [ "$h" -lt 24 ]; do
+    hs=$(date -u -d "$start + $h hour" +%Y-%m-%dT%H:%M:%SZ)
+    he=$(date -u -d "$start + $((h + 1)) hour" +%Y-%m-%dT%H:%M:%SZ)
+    $CURL "$VL/select/logsql/query" -d "query=_time:[$hs,$he) $filter | sort by (_time)" >> "$st/$name.jsonl"
+    h=$((h + 1))
+  done
+  gzip -9 "$st/$name.jsonl"
   lines=$(gzip -dc "$f" | wc -l | tr -d ' ')
   bytes=$(stat -c %s "$f")
   sum=$(sha256sum "$f" | cut -d' ' -f1)
