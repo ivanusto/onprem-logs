@@ -23,9 +23,10 @@ services:
     ports:
       # reachable from the nodes and the NAS. ufw does not see published
       # ports; collector/docker-user-allowlist.sh limits who gets through
-      - "9428:9428"
-      - "514:514/tcp"
-      - "514:514/udp"
+      - "0.0.0.0:9428:9428"   # IPv4 only: a [::] listener is served by docker-proxy
+                                 # through INPUT and would skip DOCKER-USER
+      - "0.0.0.0:514:514/tcp"
+      - "0.0.0.0:514:514/udp"
     volumes:
       - victorialogs-data:/victoria-logs-data
     restart: unless-stopped
