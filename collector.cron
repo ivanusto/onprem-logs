@@ -2,5 +2,8 @@
 # time and the collector runs Asia/Taipei, so 08:10 is 00:10 UTC: the UTC day
 # being archived closed ten minutes earlier. The verify result is appended to
 # drills.jsonl, which onprem-metrics' drills-textfile.py turns into metrics.
-10 8 * * * metrics VL=http://127.0.0.1:9428 ARCHIVE=/mnt/worm/logs /opt/onprem-logs/archive/archive-day.sh >> /var/log/onprem-logs/archive.log 2>&1
+# ARCHIVE_SKIP keeps the edge FortiGate's traffic log out of the WORM share
+# (Day 22): it stays 90 days in the hot tier, and the manifest records the
+# day's hit count as a "# skipped" line. Use the FortiGate's devname.
+10 8 * * * metrics VL=http://127.0.0.1:9428 ARCHIVE=/mnt/worm/logs ARCHIVE_SKIP=syslog-fgt-edge /opt/onprem-logs/archive/archive-day.sh >> /var/log/onprem-logs/archive.log 2>&1
 20 8 * * * metrics VL=http://127.0.0.1:9428 ARCHIVE=/mnt/worm/logs DRILLS=/srv/drills/onprem-logs/drills.jsonl /opt/onprem-logs/archive/verify-archive.sh "$(date -u -d yesterday +\%Y-\%m-\%d)" --against-live >> /var/log/onprem-logs/verify.log 2>&1

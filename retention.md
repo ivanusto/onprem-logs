@@ -52,3 +52,9 @@ MANIFEST 的 `lines` 與 `hits` 相等是完整性的證據，檔案的 sha256 �
 ## 不在這份政策裡的
 
 Prometheus 的指標保留在 Day 19。HDP 備份的保留在 Day 16。NAS 快照在 Day 17。這份只管日誌。
+
+## 不進封存的來源（Day 22）
+
+邊界 FortiGate 的 traffic 日誌只留熱層 90 天，不進 WORM，用 `archive-day.sh` 的 `ARCHIVE_SKIP=syslog-<設備名稱>` 排除。理由有三：內容幾乎都是攝影機外連被 policy 4 擋下的重複紀錄，稽核價值低；含 MAC 與內網的連線行為，屬於應該最小化保存的資料；WORM 一旦寫入就無法撤回。被排除的來源不會無聲消失，`MANIFEST.tsv` 會多一行 `# skipped<TAB>syslog-<設備名稱><TAB><當天筆數><TAB>ARCHIVE_SKIP`，稽核時看得出那一天收到多少、是依政策刻意不封存，`verify-archive.sh` 會列出但不檢查這一行。
+
+FortiGate 真正適合進封存的是設定變更事件（`type="event" subtype="system"`，例如 logid `0100044546`「Attribute configured」），那是 Day 27 稽核軌跡的材料；目前 syslogd2 的 filter 排除了 event，要封存時另開一個只送這些事件的目的地。

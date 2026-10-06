@@ -12,6 +12,11 @@
 #             (a QuTS hero WORM share mounted on the collector, see retention.md)
 #   STAGE     local scratch directory, default /var/tmp/onprem-logs-stage
 #   FORCE     set to 1 to publish a day whose lines != hits (recorded as such)
+#   ARCHIVE_SKIP  sources kept out of the archive by policy, space separated,
+#             e.g. "syslog-fgt-edge" (Day 22: the edge firewall's traffic stays
+#             in the 90-day hot tier only). A skipped source is not exported,
+#             but its hit count is written to MANIFEST.tsv as a "# skipped"
+#             line, so the manifest still accounts for every source of the day
 #
 # Layout
 #   $ARCHIVE/2026/10/03/journald-pve1.jsonl.gz
@@ -30,6 +35,7 @@ VL=${VL:-http://127.0.0.1:9428}
 ARCHIVE=${ARCHIVE:-/mnt/worm/logs}
 STAGE=${STAGE:-/var/tmp/onprem-logs-stage}
 FORCE=${FORCE:-0}
+ARCHIVE_SKIP=${ARCHIVE_SKIP:-}
 CURL="curl -sS --fail --max-time 600"
 
 day=${1:-$(date -u -d yesterday +%Y-%m-%d)}
@@ -64,6 +70,7 @@ resp=$($CURL "$VL/select/logsql/field_values" -d "query=_time:[$start,$end) host
 hosts_s=$(values "$resp")
 
 : > "$st/.rows"
+: > "$st/.skipped"
 total=0
 status=0
 export_one() { # $1 source name  $2 LogsQL filter
@@ -71,6 +78,12 @@ export_one() { # $1 source name  $2 LogsQL filter
   resp=$($CURL "$VL/select/logsql/query" -d "query=_time:[$start,$end) $filter | stats count() as n")
   hits=$(printf '%s\n' "$resp" | python3 -c 'import json,sys;l=sys.stdin.readline();print(json.loads(l)["n"] if l.strip() else 0)')
   [ "$hits" -gt 0 ] || return 0
+  case " $ARCHIVE_SKIP " in
+    *" $name "*)
+      printf '# skipped\t%s\t%s\tARCHIVE_SKIP\n' "$name" "$hits" >> "$st/.skipped"
+      printf '%-32s %10s hits skipped (ARCHIVE_SKIP)\n' "$name" "$hits"
+      return 0 ;;
+  esac
   f="$st/$name.jsonl.gz"
   # one query per hour: `sort` runs in VictoriaLogs' memory and a whole day
   # of a busy host does not fit (the query fails with HTTP 400). Each hour is
@@ -114,6 +127,7 @@ fi
     "$day" "$start" "$end" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(hostname)" "$VL"
   printf '# source\tlines\thits\tbytes\tsha256\n'
   cat "$st/.rows"
+  cat "$st/.skipped"
 } > "$st/MANIFEST.tsv"
 ( cd "$st" && sha256sum ./*.jsonl.gz MANIFEST.tsv > SHA256SUMS )
 

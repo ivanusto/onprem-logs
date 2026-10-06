@@ -10,9 +10,9 @@ groups:
         labels: {severity: warning}
         annotations: {summary: "fw-report has not run for 30 minutes, firewall metrics are stale"}
       # Per wall, because the rate limits differ by orders of magnitude:
-      #   fortigate    no log rate limit; the busiest source on day one (a
-      #                camera denied by policy 4) logged 1,915 in its first hour,
-      #                so 4,000 is a little over twice that
+      #   fortigate    no log rate limit. With NTP excluded from syslogd2 the
+      #                busiest source (a camera denied by policy 4) logs about
+      #                550 an hour, so 1,200 is a little over twice that
       #   ufw          3/min burst 10 per rule, at most about 190 an hour, so
       #                120 is a scanner that keeps the limit pinned for 40 min
       #   pvefw        1/s burst 5, at most 3,600 an hour; 600 is ten minutes
@@ -21,7 +21,7 @@ groups:
       #                sender retrying for several minutes
       - alert: FwSourceBurst
         expr: |
-          fw_top_source_blocked{source="fortigate"} > 4000
+          fw_top_source_blocked{source="fortigate"} > 1200
           or fw_top_source_blocked{source="ufw"} > 120
           or fw_top_source_blocked{source="pvefw"} > 600
           or fw_top_source_blocked{source="docker-user"} > 30

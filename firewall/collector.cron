@@ -3,6 +3,8 @@
 # (FwSilent). host is the name VictoriaLogs shows for the device; for the
 # FortiGate that is its devname. The collector's own DOCKER-USER chain
 # normally drops nothing, so it is not listed.
+# The FortiGate's traffic log is kept out of the WORM archive with
+# ARCHIVE_SKIP on the archive line in ../collector.cron (see retention.md).
 FW_EXPECT=fortigate:fgt-edge
 */10 * * * * metrics VL=http://127.0.0.1:9428 /opt/onprem-logs/firewall/fw-report.py --window 1h --baseline 7d --textfile /var/lib/node_exporter/textfile/fw.prom --out /dev/null >> /var/log/onprem-logs/fw-report.log 2>&1
 15 8 * * 1  metrics VL=http://127.0.0.1:9428 /opt/onprem-logs/firewall/fw-report.py --window 7d --baseline 30d --out /srv/reports/fw-$(date +\%F).md >> /var/log/onprem-logs/fw-report.log 2>&1

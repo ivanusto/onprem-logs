@@ -48,4 +48,15 @@ rc=0; VL=http://127.0.0.1:1 "$here/archive/archive-day.sh" 2000-01-01 2>/dev/nul
 if [ "$rc" = 0 ] || [ -e "$tmp/arch/2000" ]; then
   echo "dead collector: expected failure and no files, got rc=$rc"; exit 1
 fi
+# ARCHIVE_SKIP: the skipped source is not exported, the manifest says so with
+# its hit count, and verify still passes
+rc=0; ARCHIVE="$tmp/arch-skip" ARCHIVE_SKIP="syslog-nas-test" "$here/archive/archive-day.sh" "$day" >/dev/null || rc=$?
+ds="$tmp/arch-skip/$(printf '%s' "$day" | tr - /)"
+if [ "$rc" != 0 ] || [ -e "$ds/syslog-nas-test.jsonl.gz" ] || [ ! -e "$ds/journald-node-test.jsonl.gz" ]; then
+  echo "ARCHIVE_SKIP: expected only the journald file, rc=$rc: $(ls "$ds" 2>&1)"; exit 1
+fi
+grep -q "$(printf '^# skipped\tsyslog-nas-test\t1\tARCHIVE_SKIP$')" "$ds/MANIFEST.tsv" \
+  || { echo "ARCHIVE_SKIP: no skipped line in the manifest"; cat "$ds/MANIFEST.tsv"; exit 1; }
+ARCHIVE="$tmp/arch-skip" "$here/archive/verify-archive.sh" "$day" --against-live >/dev/null \
+  || { echo "ARCHIVE_SKIP: verify failed on a day with a skipped source"; exit 1; }
 echo "smoke: OK"

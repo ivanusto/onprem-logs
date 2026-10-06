@@ -12,7 +12,7 @@
 | `collector/prometheus-scrape.yml` | 併入 onprem-metrics | Prometheus 抓 VictoriaLogs 的 `/metrics`，映像沒有 shell，健康由 `up == 0` 看 |
 | `node/install-journal-upload.sh` | 每台 DGX Spark 與 PVE 節點 | 裝 `systemd-journal-remote`，確認 journal 持久化，寫 `journal-upload.conf`，啟用服務；`--from-now` 可略過既有歷史 |
 | `nas/qulog-log-sender.md` | 每台 NAS | QuLog Center Log Sender 的設定步驟、解析出的欄位、時區與 TLS 的條件 |
-| `archive/archive-day.sh` | 收集端，cron 每日 08:10（00:10 UTC） | 在本機暫存區逐小時匯出前一個 UTC 日每台主機的日誌成 `.jsonl.gz`，對帳相符才複製到 WORM，最後寫 `MANIFEST.tsv` 與 `SHA256SUMS`；已完成的日期拒絕覆寫 |
+| `archive/archive-day.sh` | 收集端，cron 每日 08:10（00:10 UTC） | 在本機暫存區逐小時匯出前一個 UTC 日每台主機的日誌成 `.jsonl.gz`，對帳相符才複製到 WORM，最後寫 `MANIFEST.tsv` 與 `SHA256SUMS`；已完成的日期拒絕覆寫；`ARCHIVE_SKIP` 依政策排除指定來源，筆數仍寫進 MANIFEST |
 | `archive/verify-archive.sh` | 收集端，cron 每日 08:20 與每季人工 | 驗 sha256、行數對帳、解壓後行數，`--against-live` 再向 VictoriaLogs 要一次當天筆數；`DRILLS=` 把結果寫進 drills.jsonl |
 | `grafana/datasource-victorialogs.yml` | 併入 onprem-metrics | Grafana 的 VictoriaLogs 資料源 |
 | `grafana/Dockerfile`、`fetch-plugin.sh`、`build.sh` | 收集端 VM | 把資料源外掛打進 Grafana 映像：base 釘 digest、外掛釘 sha256，啟動時不連外 |

@@ -47,6 +47,10 @@ grep -v '^#' "$dir/MANIFEST.tsv" | while IFS="$(printf '\t')" read -r name lines
   printf '%-32s lines=%-8s hits=%-8s %s\n' "$name" "$lines" "$hits" "$s"
   [ "$s" = "ok" ] || echo "FAIL $name" >> "$fail"
 done
+# sources kept out by ARCHIVE_SKIP are listed, not checked
+grep '^# skipped' "$dir/MANIFEST.tsv" | while IFS="$(printf '\t')" read -r _ name hits why; do
+  printf '%-32s hits=%-8s skipped (%s)\n' "$name" "$hits" "$why"
+done
 [ -s "$fail" ] && rc=1
 rm -f "$fail"
 if [ "$rc" -eq 0 ]; then result=OK; else result=FAIL; fi
