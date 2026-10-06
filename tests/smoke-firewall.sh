@@ -33,8 +33,10 @@ ts=$(date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/')
 for a in deny accept; do
   printf '<189>1 %s fgt-t - - - - eventtime=1 tz="+0800" logid="0000000013" type="traffic" subtype="forward" level="notice" vd="root" srcip=10.0.0.9 srcport=4 srcintf="internal" dstip=203.0.113.1 dstport=123 dstintf="wan1" proto=17 action="%s" policyid=4\n' "$ts" "$a"
 done | nc -q1 127.0.0.1 15515
-# QuLog connection log, RFC 3164 as QuTS hero 6.0.2 sends it
-printf '<30>%s nas-t qulogd[1]: conn log: Users: admin, Source IP: 10.0.0.8, Computer name: ---, Connection type: SSH/SFTP, Accessed resources: ---, Action: Login Fail\n' "$(LC_ALL=C date '+%b %e %H:%M:%S')" | nc -q1 127.0.0.1 15515
+# QuLog connection log, RFC 3164 as QuTS hero 6.0.2 sends it: local time with
+# no zone, read back with -syslog.timezone=Asia/Taipei, so stamp it in that zone
+# whatever the runner runs in (CI is UTC)
+printf '<30>%s nas-t qulogd[1]: conn log: Users: admin, Source IP: 10.0.0.8, Computer name: ---, Connection type: SSH/SFTP, Accessed resources: ---, Action: Login Fail\n' "$(TZ=Asia/Taipei LC_ALL=C date '+%b %e %H:%M:%S')" | nc -q1 127.0.0.1 15515
 sleep 2
 python3 -I "$here/firewall/fw-report.py" --vl http://127.0.0.1:19429 --window 1h --baseline 7d \
   --expect 'fortigate:fgt-t,docker-user:quiet-t' --textfile "$tmp/fw.prom" --out "$tmp/r.md"
