@@ -9,10 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -s sh archive/*.sh node/*.sh collector/*.sh grafana/*.sh firewall/*.sh tests/*.sh
-      - run: python3 -m py_compile firewall/fw-report.py
+      - run: shellcheck -s sh archive/*.sh node/*.sh collector/*.sh grafana/*.sh firewall/*.sh pcap/*.sh tests/*.sh
+      - run: python3 -m py_compile firewall/fw-report.py pcap/pcap-stat.py
+      - run: systemd-analyze verify pcap/pcap@.service || true   # the runner has no /etc/pcap/*.env
+      - run: sudo visudo -cf pcap/sudoers-pcap
       - run: docker compose -f docker-compose.yml config -q || true   # external network is absent in CI
       - name: smoke (VictoriaLogs in docker, syslog + journald in, archive + verify out)
         run: sh tests/smoke.sh
       - name: smoke-firewall (five log shapes in, fw-report counts and textfile out)
         run: sh tests/smoke-firewall.sh
+      - name: smoke-pcap (dry runs, a capture on lo, seal, pull into a WORM stand-in, verify)
+        run: sudo apt-get install -y -qq tcpdump && sudo sh tests/smoke-pcap.sh

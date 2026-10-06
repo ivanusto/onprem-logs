@@ -58,3 +58,17 @@ Prometheus 的指標保留在 Day 19。HDP 備份的保留在 Day 16。NAS 快�
 邊界 FortiGate 的 traffic 日誌只留熱層 90 天，不進 WORM，用 `archive-day.sh` 的 `ARCHIVE_SKIP=syslog-<設備名稱>` 排除。理由有三：內容幾乎都是攝影機外連被 policy 4 擋下的重複紀錄，稽核價值低；含 MAC 與內網的連線行為，屬於應該最小化保存的資料；WORM 一旦寫入就無法撤回。被排除的來源不會無聲消失，`MANIFEST.tsv` 會多一行 `# skipped<TAB>syslog-<設備名稱><TAB><當天筆數><TAB>ARCHIVE_SKIP`，稽核時看得出那一天收到多少、是依政策刻意不封存，`verify-archive.sh` 會列出但不檢查這一行。
 
 FortiGate 真正適合進封存的是設定變更事件（`type="event" subtype="system"`，例如 logid `0100044546`「Attribute configured」），那是 Day 27 稽核軌跡的材料；目前 syslogd2 的 filter 排除了 event，要封存時另開一個只送這些事件的目的地。
+
+## 封包擷取檔（Day 23）
+
+擷取檔不是日誌，不進 VictoriaLogs，也沒有熱層。三個地方，三種期限。
+
+| 層 | 在哪 | 期限 | 誰能刪 |
+|---|---|---|---|
+| 來源 | 節點 `/var/lib/pcap/live`（抓的時候）與 `/var/lib/pcap/done`（封好等收集端來拉） | live 2 天、done 7 天，`systemd-tmpfiles` 依 mtime 清 | 節點 root，到期自動 |
+| 收集端鏡射 | `/var/lib/onprem-pcap/mirror/<節點>` | 只放還沒發表的檔，發表後下一次 rsync 就清掉 | 收集端 root |
+| 封存 | WORM 共用資料夾的 `pcap/<節點>/<批次時間>/`，`pcap-pull.sh` 每小時一批 | 與日誌同一個共用資料夾的保留期（**暫定 180 天，待確認**） | 沒有人，到期由 WORM 釋放 |
+
+擷取檔比日誌敏感，裡面是封包本身，而日誌只是程式寫出來的訊息。四個 profile 預設只抓標頭（`SNAPLEN` 128 或 256），NFS 的檔案內容、syslog 的訊息本文都不會進檔。要抓完整內容時改 `custom.env`，並記得它會進 WORM，寫入後撤不回。`MANIFEST.tsv` 每一行記位元組、封包數、首末封包時間、是否截斷與 sha256，`verify-pcap.sh` 重讀檔案重數一次封包，數字要相同。`--against-index` 再對收集端的 `shipped.tsv`，一個批次要在索引裡才算是 `pcap-pull.sh` 寫的，手動複製進去的檔案會被標 `not-in-index`。
+
+節點側 7 天的意思是收集端可以停一週，擷取檔還在。收集端每小時拉一次，正常狀況下 done/ 裡的檔活不過一小時就已經有 WORM 的副本。

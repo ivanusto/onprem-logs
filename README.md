@@ -24,6 +24,9 @@ Log collection and retention for a small on-prem AI lab. Two DGX Spark nodes and
 | `firewall/collector-docker-user-log.md`, `pve-firewall.md`, `spark-ufw-logging.sh`, `pvefw-journal.service` | docs, PVE nodes, DGX Spark | How each wall is made to log, with what rate limit, and why the lab's Spark ufw and PVE firewall stay off for now (Traditional Chinese docs) |
 | `firewall/queries.md`, `firewall/collector.cron` | docs, collector | LogsQL per wall, checked against field data; the two cron lines and `FW_EXPECT` |
 | `tests/smoke-firewall.sh` | CI and local | One line of each firewall shape into a throwaway VictoriaLogs; checks the counts, that an accept is not counted, that an expected silent host is written as 0, and the NAS failure |
+| `pcap/install-pcap.sh`, `pcap@.service`, `pcap-run.sh`, `pcap-seal.sh`, `profiles/*.env`, `sudoers-pcap` | each DGX Spark and PVE node | Day 23. Packet capture with the least privilege that still works: tcpdump runs as the system user `pcap` with `CAP_NET_RAW` only (no promiscuous mode, no setcap on the binary), one systemd instance per profile (`systemctl start pcap@nfs`), headers-only snaplen by default, a time limit (`-G/-W`) or a ring (`-C/-W`) so the disk is bounded. When tcpdump exits the files are sealed into `done/` with a sha256 each. `pcap-ops` members may start/stop the listed units with sudo; nothing else |
+| `pcap/pcap-pull.sh`, `pcap-stat.py`, `verify-pcap.sh`, `pcap/collector.cron` | collector, cron hourly | Pulls each node's `done/` over ssh (forced `rrsync -ro`), checks every file against the node's sha256, publishes one batch per node to the WORM share with `MANIFEST.tsv` (bytes, packets, first/last timestamp, truncated flag, sha256) and `SHA256SUMS`; a shipped index keeps a file from being pulled twice. `verify-pcap.sh --latest --against-index` recounts the packets and checks the index, result into drills.jsonl |
+| `tests/smoke-pcap.sh` | CI and local | Dry runs of every profile, a real capture on `lo` when root, seal, pull into a WORM stand-in, second pull publishes nothing, a lying sidecar is refused, a truncated capture is flagged, verify fails on a tampered file and on a batch not in the index |
 
 ## Why not Graylog, Loki, or QuLog Center alone
 
@@ -65,8 +68,10 @@ curl -s http://127.0.0.1:9428/select/logsql/query -d 'query=_time:5m | stats by 
 ## Tests
 
 ```sh
-shellcheck -s sh archive/*.sh node/*.sh collector/*.sh grafana/*.sh tests/smoke.sh
+shellcheck -s sh archive/*.sh node/*.sh collector/*.sh grafana/*.sh firewall/*.sh pcap/*.sh tests/*.sh
 VLBIN=/path/to/victoria-logs-prod sh tests/smoke.sh    # or leave VLBIN unset to use docker
+sh tests/smoke-firewall.sh
+sh tests/smoke-pcap.sh                                 # as root it also captures on lo; SMOKE_PCAP_REAL=0 skips that
 ```
 
 ## License

@@ -1,0 +1,50 @@
+# /etc/systemd/system/pcap@.service on a DGX Spark or PVE node (Day 23).
+# One capture = one instance: `systemctl start pcap@nfs` reads
+# /etc/pcap/nfs.env and runs tcpdump as the unprivileged `pcap` user with
+# CAP_NET_RAW only. -p (no promiscuous mode) is set by pcap-run.sh, so
+# CAP_NET_ADMIN is not needed: these captures look at this host's own
+# traffic. When tcpdump exits (time or size limit reached, or `systemctl
+# stop`), pcap-seal.sh moves the finished files from live/ to done/ and
+# writes a sha256 next to each; the collector pulls done/ (pcap-pull.sh).
+#
+# On Ubuntu 24.04 (DGX OS 7) tcpdump runs under the AppArmor profile
+# /etc/apparmor.d/usr.bin.tcpdump, which allows reading and writing
+# /**.pcap and /**.pcap[0-9]* anywhere, so live/ needs no local override.
+[Unit]
+Description=onprem-logs packet capture (%i)
+Documentation=https://github.com/ivanusto/onprem-logs/tree/main/pcap
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=pcap
+Group=pcap
+EnvironmentFile=/etc/pcap/%i.env
+# strftime in the file name and every timestamp in the manifests are UTC,
+# the same day boundary archive-day.sh uses
+Environment=TZ=UTC
+WorkingDirectory=/var/lib/pcap/live
+ExecStart=/usr/local/bin/pcap-run.sh %i
+ExecStopPost=/usr/local/bin/pcap-seal.sh %i
+# a stuck capture is stopped by hand; this is the backstop
+RuntimeMaxSec=1d
+# per-file hard cap; tcpdump dies with SIGXFSZ, ExecStopPost still seals
+LimitFSIZE=2G
+
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# AF_PACKET for the capture, AF_NETLINK for `ip route get` (IFACE=auto),
+# AF_UNIX for the journal stream and nss, AF_INET/6 for libpcap's ioctls
+RestrictAddressFamilies=AF_PACKET AF_NETLINK AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/pcap/live /var/lib/pcap/done

@@ -24,6 +24,9 @@
 | `firewall/collector-docker-user-log.md`、`pve-firewall.md`、`spark-ufw-logging.sh`、`pvefw-journal.service` | 文件、PVE 節點、DGX Spark | 每道牆怎麼開日誌、限速多少，以及這個場域的 Spark ufw 與 PVE 防火牆為什麼暫時不開 |
 | `firewall/queries.md`、`firewall/collector.cron` | 文件、收集端 | 每道牆的 LogsQL（以場域資料驗過）；兩行 cron 與 `FW_EXPECT` |
 | `tests/smoke-firewall.sh` | CI 與本機 | 每種防火牆格式各一筆送進暫時的 VictoriaLogs，驗計數、accept 不算、預期會擋卻零筆的主機寫 0、NAS 登入失敗 |
+| `pcap/install-pcap.sh`、`pcap@.service`、`pcap-run.sh`、`pcap-seal.sh`、`profiles/*.env`、`sudoers-pcap` | 每台 DGX Spark 與 PVE 節點 | Day 23。能動的最小權限封包擷取。tcpdump 以系統帳號 `pcap` 執行，只有 `CAP_NET_RAW`（不開混雜模式，不對二進位 setcap），一個 profile 一個 systemd 實例（`systemctl start pcap@nfs`），預設只抓標頭，有時間上限（`-G/-W`）或環狀檔（`-C/-W`），磁碟用量有界。tcpdump 結束後檔案封進 `done/`，每個檔附 sha256。`pcap-ops` 群組可用 sudo 啟停列名的 unit，沒有其他權限 |
+| `pcap/pcap-pull.sh`、`pcap-stat.py`、`verify-pcap.sh`、`pcap/collector.cron` | 收集端，cron 每小時 | 經 ssh（強制 `rrsync -ro`）拉每台節點的 `done/`，逐檔對節點寫的 sha256，一台節點一批寫進 WORM 共用資料夾，附 `MANIFEST.tsv`（位元組、封包數、首末時間、截斷旗標、sha256）與 `SHA256SUMS`；已出貨索引讓同一個檔不會拉兩次。`verify-pcap.sh --latest --against-index` 重數封包並對索引，結果寫 drills.jsonl |
+| `tests/smoke-pcap.sh` | CI 與本機 | 每個 profile 乾跑、root 時在 `lo` 真抓一次、封存、拉進 WORM 替身、第二次拉不出新批、說謊的 sidecar 被拒、截斷的擷取被標記、竄改與手動複製進來的批次驗證失敗 |
 
 ## 為什麼不是 Graylog、Loki 或只用 QuLog Center
 
@@ -56,8 +59,10 @@ curl -s http://127.0.0.1:9428/select/logsql/query -d 'query=_time:5m | stats by 
 ## 測試
 
 ```sh
-shellcheck -s sh archive/*.sh node/*.sh collector/*.sh grafana/*.sh tests/smoke.sh
+shellcheck -s sh archive/*.sh node/*.sh collector/*.sh grafana/*.sh firewall/*.sh pcap/*.sh tests/*.sh
 VLBIN=/path/to/victoria-logs-prod sh tests/smoke.sh    # 或不設 VLBIN 用 docker
+sh tests/smoke-firewall.sh
+sh tests/smoke-pcap.sh                                 # root 時會在 lo 真抓一次，SMOKE_PCAP_REAL=0 可略過
 ```
 
 ## 授權

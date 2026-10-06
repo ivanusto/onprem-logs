@@ -1,0 +1,9 @@
+# /etc/sudoers.d/pcap (0440), installed by onprem-logs/pcap/install-pcap.sh
+# Members of pcap-ops can start, stop and look at the capture units without
+# a password and without any other root right. Units are listed by name on
+# purpose: a `pcap@*` glob in sudoers also matches a trailing " sshd" and
+# would start other units. Add a line when you add a profile.
+Cmnd_Alias PCAP_START  = /usr/bin/systemctl start pcap@nfs, /usr/bin/systemctl start pcap@corosync, /usr/bin/systemctl start pcap@syslog, /usr/bin/systemctl start pcap@custom
+Cmnd_Alias PCAP_STOP   = /usr/bin/systemctl stop pcap@nfs, /usr/bin/systemctl stop pcap@corosync, /usr/bin/systemctl stop pcap@syslog, /usr/bin/systemctl stop pcap@custom
+Cmnd_Alias PCAP_STATUS = /usr/bin/systemctl status pcap@nfs, /usr/bin/systemctl status pcap@corosync, /usr/bin/systemctl status pcap@syslog, /usr/bin/systemctl status pcap@custom, /usr/bin/systemctl list-units pcap@*
+%pcap-ops ALL=(root) NOPASSWD: PCAP_START, PCAP_STOP, PCAP_STATUS

@@ -1,0 +1,8 @@
+# add to /etc/cron.d/onprem-logs on the collector (Day 23). Captures are
+# pulled hourly at :40 from every node's done/ and published to the WORM
+# share in one batch per node; the batch is verified ten minutes later with
+# --against-index, result into drills.jsonl like the log archive.
+# PCAP_NODES: <name>=<rsync source>; the node side forces rrsync -ro on
+# /var/lib/pcap/done, so the path after the colon is "/".
+40 * * * * metrics PCAP_NODES="spark01=pcap@spark01:/ spark02=pcap@spark02:/ pve1=pcap@pve1:/ pve2=pcap@pve2:/" SSH_KEY=/home/metrics/.ssh/id_pcap ARCHIVE=/mnt/worm/pcap /opt/onprem-logs/pcap/pcap-pull.sh >> /var/log/onprem-logs/pcap-pull.log 2>&1
+50 * * * * metrics ARCHIVE=/mnt/worm/pcap DRILLS=/srv/drills/onprem-logs/drills.jsonl /opt/onprem-logs/pcap/verify-pcap.sh --latest --against-index >> /var/log/onprem-logs/pcap-verify.log 2>&1
