@@ -1,5 +1,6 @@
 # /etc/default/onprem-logs-allowlist
-# DGX Spark x2 and PVE x2 send journald; the two NAS send syslog.
+# DGX Spark x2 and PVE x2 send journald; the two NAS and the edge FortiGate
+# send syslog.
 JOURNALD_FROM="192.168.2.131 192.168.2.141 192.168.2.9 192.168.2.5"
-SYSLOG_FROM="192.168.2.2 192.168.2.22"
+SYSLOG_FROM="192.168.2.2 192.168.2.22 192.168.2.99"
 ADMIN_FROM=""

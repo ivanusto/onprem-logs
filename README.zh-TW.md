@@ -7,7 +7,7 @@
 | 路徑 | 跑在哪 | 做什麼 |
 |---|---|---|
 | `docker-compose.yml` | 收集端 VM | VictoriaLogs v1.52.0（釘 digest），journald 與 syslog 兩種接收器，90 天與 12 GiB 的保留上限，加入 onprem-metrics 的 compose 網路讓 Grafana 以 `victorialogs:9428` 連到 |
-| `collector/docker-user-allowlist.sh`、`onprem-logs-allowlist.service` | 收集端 VM | 只讓節點進 9428、NAS 進 514。Docker 發佈的埠不經 ufw，白名單要放在 DOCKER-USER 鏈 |
+| `collector/docker-user-allowlist.sh`、`onprem-logs-allowlist.service` | 收集端 VM | 只讓節點進 9428、NAS 與邊界 FortiGate 進 514；每條 DROP 前有一條限速的 LOG（Day 22）。Docker 發佈的埠不經 ufw，白名單要放在 DOCKER-USER 鏈 |
 | `collector/mnt-worm.mount` | 收集端 VM | 把 NAS 的 WORM 共用資料夾掛到 `/mnt/worm` |
 | `collector/prometheus-scrape.yml` | 併入 onprem-metrics | Prometheus 抓 VictoriaLogs 的 `/metrics`，映像沒有 shell，健康由 `up == 0` 看 |
 | `node/install-journal-upload.sh` | 每台 DGX Spark 與 PVE 節點 | 裝 `systemd-journal-remote`，確認 journal 持久化，寫 `journal-upload.conf`，啟用服務；`--from-now` 可略過既有歷史 |
@@ -20,6 +20,10 @@
 | `retention.md` | 文件 | 來源、熱、封存三層的期限與依據，WORM 共用資料夾的設定 |
 | `collector.cron` | 收集端 | 兩行 cron |
 | `tests/smoke.sh` | CI 與本機 | 起一個暫時的 VictoriaLogs，送一筆 syslog 與一筆 journald，查回來，跑封存與驗證，模擬 WORM 鎖定後重跑與竄改偵測 |
+| `firewall/fw-report.py` | 收集端，cron 每 10 分鐘與每週一 08:15 | Day 22。從 VictoriaLogs 讀五道牆的拒絕紀錄（邊界 FortiGate、DGX Spark 的 ufw、PVE 的 pve-firewall、收集端的 DOCKER-USER、QuLog 連線紀錄），回答誰在敲、敲哪裡、誰是新的；Markdown 給人看，`fw.prom` 給 onprem-metrics 的 `firewall.yml`。`FW_EXPECT` 列出一定要擋到東西的牆，零筆時寫 0 |
+| `firewall/collector-docker-user-log.md`、`pve-firewall.md`、`spark-ufw-logging.sh`、`pvefw-journal.service` | 文件、PVE 節點、DGX Spark | 每道牆怎麼開日誌、限速多少，以及這個場域的 Spark ufw 與 PVE 防火牆為什麼暫時不開 |
+| `firewall/queries.md`、`firewall/collector.cron` | 文件、收集端 | 每道牆的 LogsQL（以場域資料驗過）；兩行 cron 與 `FW_EXPECT` |
+| `tests/smoke-firewall.sh` | CI 與本機 | 每種防火牆格式各一筆送進暫時的 VictoriaLogs，驗計數、accept 不算、預期會擋卻零筆的主機寫 0、NAS 登入失敗 |
 
 ## 為什麼不是 Graylog、Loki 或只用 QuLog Center
 

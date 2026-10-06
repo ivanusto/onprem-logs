@@ -1,0 +1,55 @@
+# Day 22: copy of onprem-metrics prometheus/rules/firewall.yml, kept here so
+# the firewall/ directory is complete on its own. The onprem-metrics copy is
+# the one Prometheus loads; change both together.
+groups:
+  - name: firewall
+    rules:
+      - alert: FwReportStale
+        expr: time() - fw_report_last_run_timestamp > 1800
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "fw-report has not run for 30 minutes, firewall metrics are stale"}
+      # Per wall, because the rate limits differ by orders of magnitude:
+      #   fortigate    no log rate limit; the busiest source on day one (a
+      #                camera denied by policy 4) logged 1,915 in its first hour,
+      #                so 4,000 is a little over twice that
+      #   ufw          3/min burst 10 per rule, at most about 190 an hour, so
+      #                120 is a scanner that keeps the limit pinned for 40 min
+      #   pvefw        1/s burst 5, at most 3,600 an hour; 600 is ten minutes
+      #                of a pinned limit
+      #   docker-user  6/min burst 10 per rule and normally zero; 30 is a
+      #                sender retrying for several minutes
+      - alert: FwSourceBurst
+        expr: |
+          fw_top_source_blocked{source="fortigate"} > 4000
+          or fw_top_source_blocked{source="ufw"} > 120
+          or fw_top_source_blocked{source="pvefw"} > 600
+          or fw_top_source_blocked{source="docker-user"} > 30
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.host }} dropped {{ $value }} packets from {{ $labels.src }} in the last hour ({{ $labels.source }})"}
+      - alert: FwNewSource
+        expr: fw_new_sources > 0
+        labels: {severity: info}
+        annotations: {summary: "{{ $labels.host }} dropped {{ $value }} source(s) not seen in the previous 7 days ({{ $labels.source }}), see the report"}
+      # The NAS bans a source for 5 minutes after 5 failures within 1 minute
+      # (QuTS hero Control Panel, Security, IP Access Protection; [Ban Engine]
+      # in uLinux.conf). 4 a minute never trips it, so 10 in an hour is
+      # someone failing slowly enough to stay under the ban.
+      - alert: NasLoginFailures
+        expr: nas_login_failed_top_source >= 10
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.nas }}: {{ $value }} failed logins from {{ $labels.src }} in the last hour"}
+      - alert: NasLoginFailuresCritical
+        expr: nas_login_failed_top_source >= 50
+        labels: {severity: critical}
+        annotations: {summary: "{{ $labels.nas }}: {{ $value }} failed logins from {{ $labels.src }} in the last hour, the ban is not holding; block the source upstream"}
+      # fw-report writes 0 for every host in FW_EXPECT that dropped nothing
+      # (a host with no drops has no row otherwise, and this rule would
+      # never see it). A wall that is expected to drop all day and drops
+      # nothing for two hours has lost its logging or its syslog target.
+      - alert: FwSilent
+        expr: fw_blocked == 0
+        for: 2h
+        labels: {severity: info}
+        annotations: {summary: "{{ $labels.host }} logged no dropped packets for 2 hours, check that logging and the syslog target are on ({{ $labels.source }})"}

@@ -1,0 +1,36 @@
+# /etc/systemd/system/pvefw-journal.service on each Proxmox VE node.
+#
+# pve-firewall writes rule logs through pvefw-logger to
+# /var/log/pve-firewall.log, not to the journal, so Day 21's
+# systemd-journal-upload never sees them. This unit follows the file with
+# tail and hands every line to journald via systemd-cat, with the
+# identifier "pve-firewall" so the collector can select on
+# SYSLOG_IDENTIFIER. No new software: tail and systemd-cat are already on
+# the node. The line keeps pvefw-logger's own format:
+#   VMID LOGID CHAIN TIMESTAMP POLICY: IN=... SRC=... DST=... PROTO=... DPT=...
+[Unit]
+Description=Mirror /var/log/pve-firewall.log into the journal
+After=pvefw-logger.service
+Requires=pvefw-logger.service
+
+[Service]
+Type=simple
+# -n0: do not replay the existing file on every restart (the journal already has it)
+# -F : survive logrotate replacing the file
+ExecStart=/bin/sh -c 'exec tail -n0 -F /var/log/pve-firewall.log | systemd-cat -t pve-firewall -p info'
+Restart=always
+RestartSec=5
+DynamicUser=yes
+# the log file is root:adm 0640 on PVE; the dynamic user needs the group
+SupplementaryGroups=adm
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+# No LogLevelMax= here. It filters everything the unit's processes log,
+# including what systemd-cat writes at -p info, so LogLevelMax=notice would
+# drop every firewall line (tested on the collector with systemd-run).
+
+[Install]
+WantedBy=multi-user.target

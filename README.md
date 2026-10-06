@@ -7,7 +7,7 @@ Log collection and retention for a small on-prem AI lab. Two DGX Spark nodes and
 | Path | Runs on | What it does |
 |---|---|---|
 | `docker-compose.yml` | collector VM | VictoriaLogs v1.52.0 pinned by digest, journald and syslog receivers, 90-day and 12 GiB retention limits, joins the onprem-metrics compose network so Grafana reaches it as `victorialogs:9428` |
-| `collector/docker-user-allowlist.sh`, `onprem-logs-allowlist.service` | collector VM | Only the nodes may reach 9428 and only the NAS may reach 514. Ports published by Docker bypass ufw, so the allowlist lives in the DOCKER-USER chain |
+| `collector/docker-user-allowlist.sh`, `onprem-logs-allowlist.service` | collector VM | Only the nodes may reach 9428 and only the NAS and the edge FortiGate may reach 514; every DROP has a rate-limited LOG in front of it (Day 22). Ports published by Docker bypass ufw, so the allowlist lives in the DOCKER-USER chain |
 | `collector/mnt-worm.mount` | collector VM | Mounts the NAS WORM shared folder at `/mnt/worm` |
 | `collector/prometheus-scrape.yml` | merged into onprem-metrics | Prometheus scrapes VictoriaLogs `/metrics`; the image has no shell, so health is watched with `up == 0` |
 | `node/install-journal-upload.sh` | every DGX Spark and PVE node | Installs `systemd-journal-remote`, makes sure the journal is persistent, writes `journal-upload.conf`, enables the service; `--from-now` skips the existing history |
@@ -20,6 +20,10 @@ Log collection and retention for a small on-prem AI lab. Two DGX Spark nodes and
 | `retention.md` | docs | Source, hot and archive tiers, their limits and the WORM settings (Traditional Chinese) |
 | `collector.cron` | collector | Two cron lines |
 | `tests/smoke.sh` | CI and local | Starts a throwaway VictoriaLogs, sends one syslog and one journald entry, queries them back, archives and verifies, simulates a WORM-locked rerun, a tampered file and an unreachable collector |
+| `firewall/fw-report.py` | collector, cron every 10 min and Monday 08:15 | Day 22. Reads the drops of five walls from VictoriaLogs (edge FortiGate, DGX Spark ufw, PVE pve-firewall, the collector's DOCKER-USER, QuLog's connection log) and answers who is knocking, where, and who is new; Markdown for people, `fw.prom` for onprem-metrics' `firewall.yml`. `FW_EXPECT` names the walls that must drop something, written as 0 when they log nothing |
+| `firewall/collector-docker-user-log.md`, `pve-firewall.md`, `spark-ufw-logging.sh`, `pvefw-journal.service` | docs, PVE nodes, DGX Spark | How each wall is made to log, with what rate limit, and why the lab's Spark ufw and PVE firewall stay off for now (Traditional Chinese docs) |
+| `firewall/queries.md`, `firewall/collector.cron` | docs, collector | LogsQL per wall, checked against field data; the two cron lines and `FW_EXPECT` |
+| `tests/smoke-firewall.sh` | CI and local | One line of each firewall shape into a throwaway VictoriaLogs; checks the counts, that an accept is not counted, that an expected silent host is written as 0, and the NAS failure |
 
 ## Why not Graylog, Loki, or QuLog Center alone
 
