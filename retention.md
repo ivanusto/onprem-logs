@@ -72,3 +72,14 @@ FortiGate 真正適合進封存的是設定變更事件（`type="event" subtype=
 擷取檔比日誌敏感，裡面是封包本身，而日誌只是程式寫出來的訊息。四個 profile 的 `SNAPLEN` 是 128 或 256，這限制的是每個封包留多少，不是只留標頭：每個 TCP 段的前段內容照樣進檔，NFS 是檔案內容的切片（實測每段約 200 位元組），syslog 是訊息本文的開頭。只要 TCP 層的證據時，把 `SNAPLEN` 設成標頭長度（沒有 TCP 選項時 54，有 timestamp 時 66）。要抓完整內容時改 `custom.env`，並記得它會進 WORM，寫入後撤不回。`MANIFEST.tsv` 每一行記位元組、封包數、首末封包時間、是否截斷與 sha256，`verify-pcap.sh` 重讀檔案重數一次封包，數字要相同。`--against-index` 再對收集端的 `shipped.tsv`，一個批次要在索引裡才算是 `pcap-pull.sh` 寫的，手動複製進去的檔案會被標 `not-in-index`。
 
 節點側 7 天的意思是收集端可以停一週，擷取檔還在。收集端每小時拉一次，正常狀況下 done/ 裡的檔活不過一小時就已經有 WORM 的副本。
+
+## webfilter 日誌（Day 24）
+
+邊界 FortiGate 的 `type="utm" subtype="webfilter"` 是「哪台工作站什麼時候去了哪個網站」，屬於個資，與系統日誌不同類。目前它跟 traffic 走同一條 syslogd2，所以保存狀態與 Day 22 相同：熱層 90 天，不進 WORM（`ARCHIVE_SKIP=syslog-<設備名稱>` 排除的是整個來源）。
+
+兩個待決定的事，依場域的個資保存程序定，不在程式裡定：
+
+1. 熱層要不要比 90 天短。VictoriaLogs 的 `-retentionPeriod` 是整個實例一個值，webfilter 要另訂期限只能另開一個實例接另一個 syslog 目的地，或接受與其他日誌相同的 90 天。
+2. 要不要封存。AUP 稽核通常要的是「查得到最近幾個月」，「六個月後證明沒改過」較少被問到。要封存時另開只送 webfilter 的 syslog 目的地，讓它成為獨立的來源名稱，再從 `ARCHIVE_SKIP` 放出來，與 Day 27 的 event 做法相同。
+
+最小化在來源端做：`certificate-inspection` 只記 `hostname`，`url` 是 `/`，看不到頁面。報告（`aup-report.py`）與 viewer 都不用 `url` 決定網站。匯出檔是離線那條線的副本，看完刪。

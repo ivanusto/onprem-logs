@@ -8,3 +8,10 @@
 FW_EXPECT=fortigate:fgt-edge
 */10 * * * * metrics VL=http://127.0.0.1:9428 /opt/onprem-logs/firewall/fw-report.py --window 1h --baseline 7d --textfile /var/lib/node_exporter/textfile/fw.prom --out /dev/null >> /var/log/onprem-logs/fw-report.log 2>&1
 15 8 * * 1  metrics VL=http://127.0.0.1:9428 /opt/onprem-logs/firewall/fw-report.py --window 7d --baseline 30d --out /srv/reports/fw-$(date +\%F).md >> /var/log/onprem-logs/fw-report.log 2>&1
+
+# Day 24: acceptable-use review of the edge FortiGate's web-filter log.
+# AUP_EXPECT names the FortiGate(s) that must log web-filter lines; written
+# as 0 when silent (AupSilent). AUP_URGENT overrides the paging categories.
+AUP_EXPECT=fgt-edge
+*/10 * * * * metrics VL=http://127.0.0.1:9428 /opt/onprem-logs/firewall/aup-report.py --window 1h --textfile /var/lib/node_exporter/textfile/aup.prom --out /dev/null >> /var/log/onprem-logs/aup-report.log 2>&1
+25 8 * * 1  metrics VL=http://127.0.0.1:9428 /opt/onprem-logs/firewall/aup-report.py --window 7d --out /srv/reports/aup-$(date +\%F).md >> /var/log/onprem-logs/aup-report.log 2>&1

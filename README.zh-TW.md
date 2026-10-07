@@ -27,6 +27,9 @@
 | `pcap/install-pcap.sh`、`pcap@.service`、`pcap-run.sh`、`pcap-seal.sh`、`profiles/*.env`、`sudoers-pcap` | 每台 DGX Spark 與 PVE 節點 | Day 23。能動的最小權限封包擷取。tcpdump 以系統帳號 `pcap` 執行，只有 `CAP_NET_RAW`（不開混雜模式，不對二進位 setcap），一個 profile 一個 systemd 實例（`systemctl start pcap@nfs`），預設 snaplen 很短（它限制內容的量，不會把內容去掉，見 pcap/README.md），有時間上限（`-G/-W`）或環狀檔（`-C/-W`），磁碟用量有界。tcpdump 結束後檔案封進 `done/`，每個檔附 sha256。`pcap-ops` 群組可用 sudo 啟停列名的 unit，沒有其他權限 |
 | `pcap/pcap-pull.sh`、`pcap-stat.py`、`verify-pcap.sh`、`pcap/collector.cron` | 收集端，cron 每小時 | 經 ssh（強制 `rrsync -ro`）拉每台節點的 `done/`，逐檔對節點寫的 sha256，一台節點一批寫進 WORM 共用資料夾，附 `MANIFEST.tsv`（位元組、封包數、首末時間、截斷旗標、sha256）與 `SHA256SUMS`；已出貨索引讓同一個檔不會拉兩次。`verify-pcap.sh --latest --against-index` 重數封包並對索引，結果寫 drills.jsonl |
 | `tests/smoke-pcap.sh` | CI 與本機 | 每個 profile 乾跑、root 時在 `lo` 真抓一次、封存、拉進 WORM 替身、第二次拉不出新批、說謊的 sidecar 被拒、截斷的擷取被標記、竄改與手動複製進來的批次驗證失敗 |
+| `firewall/aup-report.py`、`firewall/fortigate-webfilter.md`、`firewall/rules-aup.yml` | 收集端，cron 每 10 分鐘與每週一 08:25 | Day 24。邊界 FortiGate webfilter 日誌的可接受使用判讀，依工作站列網站、依類別、被擋的依工作站、緊急類別命中。線上讀 VictoriaLogs，離線 `--from-file` 讀匯出檔，兩邊都先化成同樣的七個欄位。Markdown 給人看，`aup.prom` 給 onprem-metrics 的 `aup.yml`。.md 裡有 FortiGate 的變更（policy 1 掛全部監看的 profile）與 LogsQL |
+| `firewall/aup-compare.sh`、`firewall/fortigate-export-load.py` | 有 docker 或 VictoriaLogs 二進位的地方 | 把匯出檔以線上的存法灌進暫時的 VictoriaLogs，對它與對檔案各跑一次 aup-report，diff 兩份報告。瀏覽器的 [fortigate-log-viewer](https://github.com/ivanusto/fortigate-log-viewer) 是第三個讀法 |
+| `tests/smoke-aup.sh` | CI 與本機 | fixture 上線上等於離線、檔案對帳（行數 = 解析 + 略過）、webfilter 以外的行不計、textfile 寫出每個緊急類別且沉默的 FortiGate 寫 0、沒有時間的行被載入器略過並成為唯一的差異 |
 
 ## 為什麼不是 Graylog、Loki 或只用 QuLog Center
 
@@ -63,6 +66,7 @@ shellcheck -s sh archive/*.sh node/*.sh collector/*.sh grafana/*.sh firewall/*.s
 VLBIN=/path/to/victoria-logs-prod sh tests/smoke.sh    # 或不設 VLBIN 用 docker
 sh tests/smoke-firewall.sh
 sh tests/smoke-pcap.sh                                 # root 時會在 lo 真抓一次，SMOKE_PCAP_REAL=0 可略過
+sh tests/smoke-aup.sh                                  # 跟 smoke.sh 一樣要 VLBIN 或 docker
 ```
 
 ## 授權

@@ -27,6 +27,9 @@ Log collection and retention for a small on-prem AI lab. Two DGX Spark nodes and
 | `pcap/install-pcap.sh`, `pcap@.service`, `pcap-run.sh`, `pcap-seal.sh`, `profiles/*.env`, `sudoers-pcap` | each DGX Spark and PVE node | Day 23. Packet capture with the least privilege that still works: tcpdump runs as the system user `pcap` with `CAP_NET_RAW` only (no promiscuous mode, no setcap on the binary), one systemd instance per profile (`systemctl start pcap@nfs`), a short snaplen by default (it bounds, not removes, payload: see pcap/README.md), a time limit (`-G/-W`) or a ring (`-C/-W`) so the disk is bounded. When tcpdump exits the files are sealed into `done/` with a sha256 each. `pcap-ops` members may start/stop the listed units with sudo; nothing else |
 | `pcap/pcap-pull.sh`, `pcap-stat.py`, `verify-pcap.sh`, `pcap/collector.cron` | collector, cron hourly | Pulls each node's `done/` over ssh (forced `rrsync -ro`), checks every file against the node's sha256, publishes one batch per node to the WORM share with `MANIFEST.tsv` (bytes, packets, first/last timestamp, truncated flag, sha256) and `SHA256SUMS`; a shipped index keeps a file from being pulled twice. `verify-pcap.sh --latest --against-index` recounts the packets and checks the index, result into drills.jsonl |
 | `tests/smoke-pcap.sh` | CI and local | Dry runs of every profile, a real capture on `lo` when root, seal, pull into a WORM stand-in, second pull publishes nothing, a lying sidecar is refused, a truncated capture is flagged, verify fails on a tampered file and on a batch not in the index |
+| `firewall/aup-report.py`, `firewall/fortigate-webfilter.md`, `firewall/rules-aup.yml` | collector, cron every 10 min and Monday 08:25 | Day 24. Acceptable-use review of the edge FortiGate's web-filter log: sites per workstation, categories, blocked per workstation, hits on the urgent categories. Online from VictoriaLogs or offline from an export file with `--from-file`, the same seven normalized fields either way. Markdown for people, `aup.prom` for onprem-metrics' `aup.yml`. The .md holds the FortiGate change (monitor-all profile on policy 1) and the LogsQL |
+| `firewall/aup-compare.sh`, `firewall/fortigate-export-load.py` | anywhere with docker or a VictoriaLogs binary | Loads an export into a throwaway VictoriaLogs the way the live feed stores it, runs aup-report online and offline on it, diffs the two reports; the browser viewer ([fortigate-log-viewer](https://github.com/ivanusto/fortigate-log-viewer)) is the third reading |
+| `tests/smoke-aup.sh` | CI and local | online == offline on the fixture, the file reconciles (lines = parsed + skipped), non-webfilter lines stay out, textfile writes every urgent category and a silent FortiGate as 0, a line without a time is skipped by the loader and shows up as the one difference |
 
 ## Why not Graylog, Loki, or QuLog Center alone
 
@@ -72,6 +75,7 @@ shellcheck -s sh archive/*.sh node/*.sh collector/*.sh grafana/*.sh firewall/*.s
 VLBIN=/path/to/victoria-logs-prod sh tests/smoke.sh    # or leave VLBIN unset to use docker
 sh tests/smoke-firewall.sh
 sh tests/smoke-pcap.sh                                 # as root it also captures on lo; SMOKE_PCAP_REAL=0 skips that
+sh tests/smoke-aup.sh                                  # VLBIN or docker, like smoke.sh
 ```
 
 ## License

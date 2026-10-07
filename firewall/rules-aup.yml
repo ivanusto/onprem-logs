@@ -1,0 +1,36 @@
+# Day 24: copy of onprem-metrics prometheus/rules/aup.yml, kept here so the
+# firewall/ directory is complete on its own. The onprem-metrics copy is the
+# one Prometheus loads; change both together.
+groups:
+  - name: aup
+    rules:
+      - alert: AupReportStale
+        expr: time() - aup_report_last_run_timestamp > 1800
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "aup-report has not run for 30 minutes, web-filter metrics are stale"}
+      # aup-report writes a 0 row for every urgent category (default:
+      # Malicious Websites, Phishing, Spam URLs), so a hit is a transition
+      # from 0, not a series appearing. One hit is enough: the FortiGate
+      # already blocked it, the question is which workstation asked.
+      - alert: AupUrgentCategoryHit
+        expr: aup_webfilter_urgent > 0
+        labels: {severity: critical}
+        annotations: {summary: "{{ $labels.fgt }}: {{ $value }} request(s) to a {{ $labels.catdesc }} site in the last hour, see the report for the workstation"}
+      # A gambling block or two is a person; twenty in an hour from one
+      # workstation is software (an extension, malware, a misconfigured
+      # app) retrying. Threshold to be revisited after the first weekly report.
+      - alert: AupBlockedBurst
+        expr: aup_webfilter_blocked_top_source >= 20
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "{{ $labels.fgt }}: {{ $labels.who }} was blocked {{ $value }} times in the last hour"}
+      # aup-report writes 0 for every FortiGate in AUP_EXPECT that logged
+      # nothing. Workstations browse all day; six hours of zero means the
+      # web-filter profile or the syslog target is off. info, not a page:
+      # nights and weekends are legitimately quiet.
+      - alert: AupSilent
+        expr: aup_webfilter_total == 0
+        for: 6h
+        labels: {severity: info}
+        annotations: {summary: "{{ $labels.fgt }} logged no web-filter lines for 6 hours, check the profile on the policy and the syslog filter"}
