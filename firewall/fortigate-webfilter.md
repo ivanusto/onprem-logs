@@ -48,9 +48,9 @@ end
 
 `logtraffic` 設回 `utm`。場域在 Day 22 時是 `utm`，Day 24 之前曾為了別的觀察改成 `all`（FortiGate 日誌一小時約 1.5 萬筆）。`utm` 只記有 UTM 事件的連線，但掛上全部監看的 profile 之後，每一個網頁連線都有 webfilter 事件，traffic 也跟著記一筆 `utmaction="allow"`。
 
-場域實測（2026-10-08，21 台工作站，00:14:40 掛上後第一個小時）：FortiGate 共 15,281 筆，webfilter 5,415（HTTP 2,638、HTTPS 2,777），traffic 9,840（其中 5,217 筆帶 `utmaction="allow"`，其餘多半是變更前就建立的長連線的中途紀錄）。穩態約每小時 1 萬筆，Day 22 同時段約 1,100 筆，大約九倍。單一台 Firefox 的連線偵測（HTTP，每次一筆）就佔了第一小時的四成。收集端的容量照 Day 21 的算法重估，告警門檻（`FwSourceBurst` 只看 deny）不受影響。
+場域實測（2026-10-08，21 台工作站，00:14:40 掛上後第一個小時）：FortiGate 共 15,281 筆，webfilter 5,415（HTTP 2,638、HTTPS 2,777），traffic 9,840（其中 5,217 筆帶 `utmaction="allow"`；其餘是 policy 4、本機與隱含拒絕這些原本就記的紀錄，以及長連線的中途紀錄 `logid="0000000020"`）。穩態約每小時 1 萬筆，Day 22 同時段約 1,100 筆，大約九倍。單一台 Firefox 的連線偵測（HTTP，每次一筆）就佔了第一小時的四成。收集端的容量照 Day 21 的算法重估，告警門檻（`FwSourceBurst` 只看 deny）不受影響。
 
-syslogd2 的 filter 不用改。webfilter 屬於 UTM 日誌，Day 22 的 free-style 排除的是 `event` 與 traffic 裡的 NTP，沒有碰 UTM。Day 22 文末寫「要多 include 一條 webfilter」是當時的推測，場域實測掛上 profile 之後第一筆在 5 秒內到達收集端。webfilter 的 `level` 是 `error`（評等失敗）或 `warning`（擋下），filter 的 `severity information` 都會放行。驗證：
+syslogd2 的 filter 不用改。webfilter 屬於 UTM 日誌，Day 22 的 free-style 排除的是 `event` 與 traffic 裡的 NTP，沒有碰 UTM。Day 22 文末寫「要多 include 一條 webfilter」是當時的推測，場域實測掛上 profile 之後 5 秒就產生第一筆，兩分鐘後在收集端查得到 98 筆。webfilter 的 `level` 是 `error`（評等失敗）或 `warning`（擋下），filter 的 `severity information` 都會放行。驗證：
 
 ```
 _time:1h hostname:=fgt-edge "subtype=\"webfilter\"" | stats count()
