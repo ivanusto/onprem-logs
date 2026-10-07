@@ -111,7 +111,7 @@ _time:7d hostname:=fgt-edge "subtype=\"webfilter\"" | stats by (_time:1h) count(
 
 `aup-compare.sh export.log` 起一個暫時的 VictoriaLogs，把匯出檔以 `fortigate-export-load.py` 灌進去（`_time` 取 `eventtime`，`hostname` 取 `devname`，與線上的存法相同），對它跑一次 `aup-report.py`，再對檔案跑一次 `--from-file`，`diff` 兩份報告的表格。差異只會來自三個地方：時區（線上是 `_time`，離線是 `eventtime` 或 `tz`，兩者都是絕對時間，不該差）、沒有時間的行（線上不能存、離線會計，`tests/smoke-aup.sh` 刻意放了一行驗這點）、`url` 的正規化（兩邊都不用 `url` 決定網站，所以也不該差）。viewer 是第三個讀法，它的「用戶存取網站列表」切到「按用戶分組」，逐台對 `online.md` 的「依工作站列網站」。
 
-拿匯出檔對生產收集端的時候還有第四個來源：生產收集端的 `_time` 是 rfc5424 標頭的時間，只到秒，而且比 `eventtime` 早不到一秒。用匯出檔的 `eventtime` 範圍去查收集端，邊界上會少幾筆；前後各放寬兩秒，再以 `sessionid` 加 `eventtime` 逐筆對。場域 2,160 行全部在收集端找到。
+拿匯出檔對生產收集端的時候還有第四個來源：生產收集端的 `_time` 是 rfc5424 標頭的時間，只到整秒，與 `eventtime` 相差有早有晚（場域 2,162 筆量到 −1.42 到 +0.95 秒，中位數 −0.13 秒）。用匯出檔的 `eventtime` 範圍去查收集端，邊界上會少幾筆；前後各放寬兩秒，再以 `sessionid` 加 `eventtime` 逐筆對。場域 2,160 行全部在收集端找到。
 
 匯出檔不要灌進生產的收集端，那些小時的紀錄會被算兩次。`fortigate-export-load.py` 在每一行加 `source="export"` 就是為了萬一灌錯時還分得出來。
 
