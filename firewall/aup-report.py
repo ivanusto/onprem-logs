@@ -104,7 +104,7 @@ def rows_from_file(path, a):
             if kv.get("type") != "utm" or kv.get("subtype") != "webfilter":
                 stats["not_webfilter"] += 1
                 continue
-            fgt = kv.get("devname", "")
+            fgt = kv.get("devname") or a.devname
             if a.fgt and fgt not in a.fgt:
                 stats["not_webfilter"] += 1
                 continue
@@ -212,6 +212,7 @@ def main():
     ap.add_argument("--window", default="7d", help="LogsQL duration ending now, e.g. 1h, 24h, 7d")
     ap.add_argument("--since"); ap.add_argument("--until", help="RFC 3339 bounds instead of --window")
     ap.add_argument("--from-file", help="offline: an export of key=value lines instead of VictoriaLogs")
+    ap.add_argument("--devname", default="FortiGate", help="--from-file: name for lines without devname (memory-log exports), as fortigate-export-load.py")
     ap.add_argument("--fgt", action="append", default=[], help="devname(s) to include; default all")
     ap.add_argument("--urgent", default=os.environ.get("AUP_URGENT", URGENT_DEFAULT), help="comma separated catdesc values that page")
     ap.add_argument("--top", type=int, default=10)

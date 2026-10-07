@@ -8,6 +8,8 @@
 #      0 included, and a silent FortiGate is written as 0
 #   4. an export with a line that has no time is loaded without it, and the
 #      line is counted as skipped, never dated now
+#   5. a memory-log export (GUI download or REST raw) has no devname; both
+#      sides name it with the same default and still agree
 # Needs $VLBIN (victoria-logs-prod) or docker, like tests/smoke.sh.
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -44,4 +46,10 @@ grep -q '8 lines, 6 loaded, 2 skipped' "$tmp/cmp2.log" || { echo "loader did not
 # offline counts the untimed webfilter line (it has no time but is a record), online cannot hold it: the two differ by design here
 [ "$rc" = 1 ] || { echo "expected the untimed line to make the reports differ, rc=$rc"; exit 1; }
 grep -q '^+.*a.example' "$tmp/cmp2.log" || { echo "diff should show a.example on the offline side"; cat "$tmp/cmp2.log"; exit 1; }
+
+# 5. no devname (memory-log export): both sides fall back to the same name
+sed 's/devname="[^"]*" //; s/devid="[^"]*" //' "$fx" > "$tmp/nodev.log"
+grep -q devname "$tmp/nodev.log" && { echo "fixture still has devname"; exit 1; }
+PORT=19433 sh "$here/firewall/aup-compare.sh" "$tmp/nodev.log" "$tmp/cmp3" > "$tmp/cmp3.log" 2>&1 || { echo "no-devname export: online and offline differ"; cat "$tmp/cmp3.log"; exit 1; }
+grep -q '^## FortiGate  webfilter 4 筆，擋下 2 筆$' "$tmp/cmp3/online.md" || { echo "no-devname online totals"; grep '^## ' "$tmp/cmp3/online.md"; exit 1; }
 echo "smoke-aup: OK"

@@ -9,7 +9,12 @@ Each key=value line becomes one JSON line with
     _time     from eventtime (ns/us/ms/s), else date + time + tz
     hostname  devname           (the live feed puts the devname in the
                                  rfc5424 header, which VictoriaLogs stores
-                                 as hostname; it is the stream field)
+                                 as hostname; it is the stream field).
+                                 A GUI or REST export of the memory log
+                                 has no devname; --devname (default
+                                 "FortiGate", what the viewer shows) fills
+                                 it, and aup-report.py --from-file uses
+                                 the same default
     source    "export"          so the rows can be told apart from the feed
     _msg      the whole line
 and is sent to /insert/jsonline. Lines without a time are skipped and
@@ -54,6 +59,7 @@ def main():
     ap.add_argument("file")
     ap.add_argument("--vl", default="http://127.0.0.1:19428")
     ap.add_argument("--source", default="export")
+    ap.add_argument("--devname", default="FortiGate", help="for lines without devname (memory-log exports)")
     a = ap.parse_args()
     lines = loaded = skipped = 0
     body = []
@@ -68,7 +74,7 @@ def main():
             if not kv or ts is None:
                 skipped += 1
                 continue
-            body.append(json.dumps({"_time": ts, "hostname": kv.get("devname", ""), "source": a.source, "_msg": line}, ensure_ascii=False))
+            body.append(json.dumps({"_time": ts, "hostname": kv.get("devname") or a.devname, "source": a.source, "_msg": line}, ensure_ascii=False))
             loaded += 1
     if body:
         url = a.vl.rstrip("/") + "/insert/jsonline?_stream_fields=hostname,source&_time_field=_time&_msg_field=_msg"
