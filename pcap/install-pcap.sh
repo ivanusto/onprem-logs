@@ -15,8 +15,9 @@
 #      to `rrsync -ro /var/lib/pcap/done` with `restrict`; when the host has
 #      Day 11's `sshusers` group (sshd AllowGroups), pcap is added to it,
 #      which is the only way that key can log in at all
-#   5. a sudoers drop-in that lets members of `pcap-ops` start, stop and
-#      inspect pcap@<profile> units, listed by name, no wildcard
+#   5. where sudo is installed, a sudoers drop-in that lets members of
+#      `pcap-ops` start, stop and inspect pcap@<profile> units, listed by
+#      name, no wildcard
 #
 # It does not touch ufw, pve-firewall, Docker or AppArmor. On Ubuntu the
 # tcpdump AppArmor profile already permits /**.pcap and /**.pcap[0-9]*;
@@ -58,8 +59,14 @@ for p in "$HERE"/profiles/*.env; do
 done
 systemctl daemon-reload
 
-install -m 0440 "$HERE/sudoers-pcap" /etc/sudoers.d/pcap
-visudo -cf /etc/sudoers.d/pcap >/dev/null
+# a Proxmox VE node often has no sudo at all (root logs in directly); the
+# drop-in is only installed where sudo is, and checked before it counts
+if command -v visudo >/dev/null; then
+  install -m 0440 "$HERE/sudoers-pcap" /etc/sudoers.d/pcap
+  visudo -cf /etc/sudoers.d/pcap >/dev/null || { rm -f /etc/sudoers.d/pcap; echo "sudoers-pcap failed visudo, not installed" >&2; exit 1; }
+else
+  echo "sudo is not installed: no sudoers drop-in, pcap-ops has no effect here"
+fi
 
 if [ -n "$PULL_KEY" ]; then
   command -v rrsync >/dev/null || { echo "rrsync not found (rsync >= 3.2.4 ships it in /usr/bin)" >&2; exit 1; }
@@ -80,7 +87,9 @@ fi
 echo
 echo "tcpdump: $(tcpdump --version 2>&1 | head -n1)"
 if [ -e /etc/apparmor.d/usr.bin.tcpdump ] && command -v aa-status >/dev/null; then
-  echo "apparmor: $(aa-status 2>/dev/null | grep -E '^ +(/usr/bin/)?tcpdump' || echo 'profile present, mode unknown')"
+  # aa-status lists profiles under "N profiles are in <mode> mode." headings
+  mode=$(aa-status 2>/dev/null | awk '/profiles are in/ { m = $(NF-1) } /^ +(\/usr\/bin\/)?tcpdump$/ { print m; exit }')
+  if [ -n "$mode" ]; then echo "apparmor: usr.bin.tcpdump in $mode mode"; else echo "apparmor: usr.bin.tcpdump present, not listed by aa-status"; fi
   grep -q 'pP\]\[cC\]\[aA\]\[pP\]\[0-9\]' /etc/apparmor.d/usr.bin.tcpdump \
     && echo "          /**.pcap and /**.pcap[0-9]* are allowed, live/ needs no local override" \
     || echo "          profile lacks the rotated-file rule; add '/var/lib/pcap/** rw,' to /etc/apparmor.d/local/usr.bin.tcpdump"

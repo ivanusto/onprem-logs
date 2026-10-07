@@ -10,6 +10,7 @@
 # On Ubuntu 24.04 (DGX OS 7) tcpdump runs under the AppArmor profile
 # /etc/apparmor.d/usr.bin.tcpdump, which allows reading and writing
 # /**.pcap and /**.pcap[0-9]* anywhere, so live/ needs no local override.
+# Debian 13 (PVE 9) ships the same profile, in enforce mode.
 [Unit]
 Description=onprem-logs packet capture (%i)
 Documentation=https://github.com/ivanusto/onprem-logs/tree/main/pcap
@@ -27,6 +28,10 @@ Environment=TZ=UTC
 WorkingDirectory=/var/lib/pcap/live
 ExecStart=/usr/local/bin/pcap-run.sh %i
 ExecStopPost=/usr/local/bin/pcap-seal.sh %i
+# timeout(1) exits 124 when MAX_SECONDS ends the capture (a filter that
+# matched nothing never rotates, so -W never stops it); that is the
+# designed end of an idle capture, not a failure
+SuccessExitStatus=124
 # a stuck capture is stopped by hand; this is the backstop
 RuntimeMaxSec=1d
 # per-file hard cap; tcpdump dies with SIGXFSZ, ExecStopPost still seals

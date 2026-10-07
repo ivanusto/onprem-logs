@@ -23,10 +23,15 @@
 #        mode CAP_NET_RAW is enough; a tap or bridge capture that must see
 #        other hosts' frames needs CAP_NET_ADMIN as well.
 #   -n   no name resolution: no DNS traffic caused by the capture itself
-#   -s   a short snaplen keeps headers and drops payload. 256 bytes covers
-#        Ethernet+IP+TCP+RPC+NFS compound headers; the file contents of an
-#        NFS READ or WRITE are not kept. corosync is encrypted by knet, so
-#        128 is enough there.
+#   -s   a short snaplen bounds what is kept of each packet; it does not
+#        drop payload. Every TCP segment keeps its first SNAPLEN bytes, and
+#        past Ethernet+IP+TCP (54 bytes, 66 with TCP timestamps) that is
+#        payload: a 1 MiB NFS READ reply arrives as many segments and each
+#        leaves about 200 bytes of file data in the capture. A SNAPLEN equal
+#        to the header length keeps TCP headers only (retransmissions,
+#        windows, RSTs, timing); 256 also shows the RPC header and the first
+#        operations of a call. corosync is
+#        encrypted by knet, so whatever 128 keeps there is ciphertext.
 #   timed mode is -G/-W: tcpdump exits by itself after KEEP_FILES files. A
 #        rotation happens on the first packet after the interval, so a
 #        filter that matches nothing never rotates; MAX_SECONDS ends it.

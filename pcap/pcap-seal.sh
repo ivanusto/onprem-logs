@@ -7,7 +7,8 @@
 #
 #   pcap-seal.sh <profile>
 #
-# ring-mode files are named <profile>.pcap0, <profile>.pcap1 ... by tcpdump;
+# ring-mode files are named <profile>.pcap00, <profile>.pcap01 ... by tcpdump
+# (as many digits as -W needs);
 # they are renamed to <profile>-<mtime, UTC>.pcap so every file in done/
 # carries the time it was closed; two closed in the same second get -1, -2.
 # A file that holds the 24-byte pcap header and nothing else (a capture

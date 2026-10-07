@@ -10,7 +10,9 @@ which tcpdump; ls -l /usr/sbin/tcpdump /sbin/tcpdump /usr/local/sbin/tcpdump 2>/
 tcpdump --version 2>&1 | head -n1
 ```
 
-再看 App Center 裡 QNAP 自己的「診斷工具」（Diagnostic Tool）有沒有封包擷取的項目，以及 QuLog Center 以外還有哪些系統工具。**這兩項在撰寫時都還沒有在 QuTS hero 6.0.2 上確認（待查）**。2016 年的社群討論說 QTS 4.2.1 沒有 tcpdump，Qnapclub 與 myQNAP 都有第三方的 tcpdump QPKG，那只能證明「要另外裝」的版本存在。
+再看 App Center 有沒有 QNAP 自己的封包擷取工具。2016 年的社群討論說 QTS 4.2.1 沒有 tcpdump，Qnapclub 與 myQNAP 都有第三方的 tcpdump QPKG，那只能證明「要另外裝」的版本存在。
+
+**這個場域查到的（2026-10-07，模型庫那台，QuTS hero 6.0.2）：**PATH 與 `/usr/sbin`、`/usr/bin`、`/sbin`、`/bin` 都沒有 `tcpdump`、`tshark`、`dumpcap`。App Center 目錄 109 項（已裝 21 項），名稱或說明提到封包的只有 ADRA NDR X，它是威脅偵測，要從 QNAP 的交換器鏡射流量進來，這個場域的交換器不是 QNAP，不適用。QuLog Center 是日誌，不是擷取。所以走下面第三種「都沒有」。
 
 ## 三種情況
 
@@ -25,7 +27,7 @@ tcpdump -p -n -i <介面> -s 256 -G 600 -W 6 -w "$d/nas-nfs-%Y%m%dT%H%M%SZ.pcap"
 cd "$d" && for f in *.pcap; do sha256sum "$f" > "$f.sha256"; done     # 跟節點的 pcap-seal.sh 一樣的 sidecar
 ```
 
-- `-p`、`-n`、`-s 256`，與節點相同的理由，標頭就夠，檔案內容不進檔。
+- `-p`、`-n`、`-s 256`，與節點相同的理由。`-s` 限制的是每個封包留多少，每個資料段的前約 200 位元組照樣是檔案內容，共用資料夾放的不是公開資料時把 `-s` 設成標頭長度（沒有 TCP 選項時 54，有 timestamp 時 66），只留 TCP 標頭。
 - 寫到暫存共用資料夾，不直接寫 WORM。WORM 鎖定延遲只有 10 分鐘，一個寫到一半的檔會被鎖住、刪不掉。
 - 搬回收集端：收集端每分鐘已經以 Day 19 `nas-textfile.sh` 的身份 SSH 到 NAS，用同一把金鑰 `scp` 到 `/var/lib/onprem-pcap/in/nas-primary/`，然後讓 `pcap-pull.sh` 把它當成本機來源，之後跟節點的檔走同一條路，同樣的 MANIFEST、同樣的驗證。
 
@@ -45,7 +47,7 @@ PCAP_NODES="nas-primary=/var/lib/onprem-pcap/in/nas-primary/" ARCHIVE=/mnt/worm/
 
 不裝第三方 QPKG。NFS 每個封包都有兩端，Spark 那一端的 `pcap@nfs` 抓到的就是 NAS 送出與收到的封包，少掉的只有「封包離開 NAS 網卡的那一刻」與「NAS 自己沒送出來的東西」。要分辨「NAS 沒回」與「網路沒送到」，兩個辦法。
 
-1. 交換器鏡射。Mercury SE106 Pro 是否支援 port mirror 待查，支援的話把 NAS 的埠鏡射到一台工作站，用 Wireshark 抓，檔案走第一種的搬回路線。
+1. 交換器鏡射。Mercury SE106 Pro 是網管型（官方安裝手冊列出「監控」選單），手冊沒有寫 port mirror，實機還沒登入確認，待查。支援的話把 NAS 的埠鏡射到一台工作站，用 Wireshark 抓，檔案走第一種的搬回路線。
 2. 兩端對時。Spark 端的擷取檔配 NAS 的 QuLog 系統事件（Day 21 已進 VictoriaLogs），同一條時間軸上看 NFS 的 TCP 重傳開始的時間，與 NAS 那一刻有沒有記錄到任何事。這不是封包層的證據，但是這個場域今天就拿得到的。
 
 ## 不管哪一種

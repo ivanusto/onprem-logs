@@ -69,6 +69,6 @@ FortiGate 真正適合進封存的是設定變更事件（`type="event" subtype=
 | 收集端鏡射 | `/var/lib/onprem-pcap/mirror/<節點>` | 只放還沒發表的檔，發表後下一次 rsync 就清掉 | 收集端 root |
 | 封存 | WORM 共用資料夾的 `pcap/<節點>/<批次時間>/`，`pcap-pull.sh` 每小時一批 | 與日誌同一個共用資料夾的保留期（**暫定 180 天，待確認**） | 沒有人，到期由 WORM 釋放 |
 
-擷取檔比日誌敏感，裡面是封包本身，而日誌只是程式寫出來的訊息。四個 profile 預設只抓標頭（`SNAPLEN` 128 或 256），NFS 的檔案內容、syslog 的訊息本文都不會進檔。要抓完整內容時改 `custom.env`，並記得它會進 WORM，寫入後撤不回。`MANIFEST.tsv` 每一行記位元組、封包數、首末封包時間、是否截斷與 sha256，`verify-pcap.sh` 重讀檔案重數一次封包，數字要相同。`--against-index` 再對收集端的 `shipped.tsv`，一個批次要在索引裡才算是 `pcap-pull.sh` 寫的，手動複製進去的檔案會被標 `not-in-index`。
+擷取檔比日誌敏感，裡面是封包本身，而日誌只是程式寫出來的訊息。四個 profile 的 `SNAPLEN` 是 128 或 256，這限制的是每個封包留多少，不是只留標頭：每個 TCP 段的前段內容照樣進檔，NFS 是檔案內容的切片（實測每段約 200 位元組），syslog 是訊息本文的開頭。只要 TCP 層的證據時，把 `SNAPLEN` 設成標頭長度（沒有 TCP 選項時 54，有 timestamp 時 66）。要抓完整內容時改 `custom.env`，並記得它會進 WORM，寫入後撤不回。`MANIFEST.tsv` 每一行記位元組、封包數、首末封包時間、是否截斷與 sha256，`verify-pcap.sh` 重讀檔案重數一次封包，數字要相同。`--against-index` 再對收集端的 `shipped.tsv`，一個批次要在索引裡才算是 `pcap-pull.sh` 寫的，手動複製進去的檔案會被標 `not-in-index`。
 
 節點側 7 天的意思是收集端可以停一週，擷取檔還在。收集端每小時拉一次，正常狀況下 done/ 裡的檔活不過一小時就已經有 WORM 的副本。
