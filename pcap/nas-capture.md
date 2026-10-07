@@ -47,7 +47,7 @@ PCAP_NODES="nas-primary=/var/lib/onprem-pcap/in/nas-primary/" ARCHIVE=/mnt/worm/
 
 不裝第三方 QPKG。NFS 每個封包都有兩端，Spark 那一端的 `pcap@nfs` 抓到的就是 NAS 送出與收到的封包，少掉的只有「封包離開 NAS 網卡的那一刻」與「NAS 自己沒送出來的東西」。要分辨「NAS 沒回」與「網路沒送到」，兩個辦法。
 
-1. 交換器鏡射。Mercury SE106 Pro 是網管型（官方安裝手冊列出「監控」選單），手冊沒有寫 port mirror，實機還沒登入確認，待查。支援的話把 NAS 的埠鏡射到一台工作站，用 Wireshark 抓，檔案走第一種的搬回路線。
+1. 交換器鏡射。Mercury SE106 Pro 支援（管理介面「監控 → 端口監控」：一個監控埠，其餘每個埠可分別鏡射入口、出口；改完到「配置保存」存檔）。把 NAS 的埠鏡射到一台工作站，用 Wireshark 或 tcpdump 抓，檔案走第一種的搬回路線。鏡射埠收到的框不是給工作站的，要混雜模式，也就是 `CAP_NET_ADMIN`；過濾式寫到只剩要看的那一對位址。兩個方向合起來可能超過監控埠的速度，NFS 載入模型時單一方向就到 2.5 Gb/s，逐框比對要用 10G 的埠當監控埠。
 2. 兩端對時。Spark 端的擷取檔配 NAS 的 QuLog 系統事件（Day 21 已進 VictoriaLogs），同一條時間軸上看 NFS 的 TCP 重傳開始的時間，與 NAS 那一刻有沒有記錄到任何事。這不是封包層的證據，但是這個場域今天就拿得到的。
 
 ## 不管哪一種
