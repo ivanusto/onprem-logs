@@ -86,13 +86,13 @@ FortiGate 真正適合進封存的是設定變更事件（`type="event" subtype=
 
 ## 稽核軌跡（Day 27）
 
-管理動作的紀錄大多早就在三層裡了，Day 27 只是開始讀它們。節點與收集端的 sudo、sshd、pvedaemon 在 journald，走 `journald-<主機>` 的來源，天天進 WORM。NAS 的事件日誌在 `syslog-<NAS>` 裡，一樣進 WORM。新加的是 FortiGate 的事件日誌（設定變更、管理員登入），走 515 的監聽器，帶 `audit="fortigate"`，是獨立的來源 `audit-fgt-edge`，天天進 WORM，`ARCHIVE_SKIP` 排除的 `syslog-fgt-edge` 現在只含 traffic。
+管理動作的紀錄大多早就在三層裡了，Day 27 只是開始讀它們。節點與收集端的 sudo、SSH 登入（PVE 9 是 sshd-session）、PVE 的任務（qm、pve-ha-lrm、pveupdate）在 journald，走 `journald-<主機>` 的來源，天天進 WORM。NAS 的事件日誌在 `syslog-<NAS>` 裡，一樣進 WORM。新加的是 FortiGate 的事件日誌（設定變更、管理員登入），走 515 的監聽器，帶 `audit="fortigate"`，是獨立的來源 `audit-fgt-edge`，天天進 WORM，`ARCHIVE_SKIP` 排除的 `syslog-fgt-edge` 現在只含 traffic。
 
 三層表因此多一列：
 
 | 層 | 在哪 | 期限 |
 |---|---|---|
-| 來源 | FortiGate 記憶體日誌（環狀，約半天） | 到被覆寫為止 |
+| 來源 | FortiGate 記憶體日誌（環狀，這台 60F 的事件約 8 天） | 到被覆寫為止 |
 | 熱 | VictoriaLogs，`audit:=fortigate` | 90 天 |
 | 封存 | WORM 的 `audit-<設備名稱>.jsonl.gz`，每日一檔 | 180 天（暫定，待確認），與其他來源相同 |
 

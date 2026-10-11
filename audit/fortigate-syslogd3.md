@@ -45,9 +45,18 @@ config log syslogd3 filter
             set filter "(type utm)"
             set filter-type exclude
         next
+        edit 2
+            set category event
+            set filter "(subtype wireless)"
+            set filter-type exclude
+        next
     end
 end
 ```
+
+第二條 free-style 是實機加的。這台 60F 的事件日誌一天約 4,000 到 5,000 筆，86% 到 90% 是 wireless（AP 回報的 DHCP6 SOLICIT、Rogue AP、DHCP 交握），排除後一天約 500 筆。wireless 對稽核沒有用，又含終端的 MAC，所以在來源端就不送。
+
+以 REST 設定時（`PUT /api/v2/cmdb/log.syslogd3/filter`，2026-10-11，FortiOS 7.6.7）有兩個現象。把所有開關放在同一個 PUT 裡，回應是 success，`forward-traffic` 讀回來卻仍是 enable，單獨再送一次才變 disable。`ztna-traffic` 單獨送 disable 也讀回 enable。這台沒有 ZTNA，實際收到的內容裡沒有任何 traffic（見下方驗證），所以以收到的內容為準。用 CLI 設定時同樣要讀回來確認。
 
 兩件事在 Day 22 學過，這裡照用。第一，開關式的 filter 只管 traffic 那幾類，UTM 日誌（webfilter 等）沒有開關，要用 free-style 排除，每個 category 只能有一條。這台現在只產生 webfilter 一種 UTM 日誌（Day 24），所以排除一條就夠。之後若開了其他 UTM 功能，這裡要跟著加。第二，`severity` 要是 `information`，設定變更事件的 level 是 information，設成 notice 就一筆都收不到。
 
@@ -57,18 +66,25 @@ end
 _time:1h audit:=fortigate | unpack_logfmt from _msg fields (type, subtype) | stats by (type, subtype) count()
 ```
 
-應該只有 `event` 的 `system`、`user`（以及開了的其他事件子類型）。有任何 `traffic` 或 `utm` 出現，就是 filter 漏了【待填，場域第一個小時的結果】。
+應該只有 `event` 的 `system`、`user`（以及開了的其他事件子類型）。有任何 `traffic`、`utm` 或 `wireless` 出現，就是 filter 漏了。
+
+場域的結果（2026-10-11 16:34:20 啟用，16:42:57 查）：收到 4 筆，全是 `event/system`，logid `0100022905`（syslogd3 啟用本身）、`0100044546`（syslogd3 setting 的變更）、`0100040704`、`0100026001`。60F 的記憶體日誌同一段時間是同樣的 4 筆 system，加上 7 筆 wireless，wireless 一筆都沒送出。
 
 ## 哪些事件是稽核軌跡
 
 | 事件 | logid | 欄位 |
 |---|---|---|
-| 設定變更 | `0100044546` Attribute configured、`0100044547` Object configured 等（待查 7.6.7 實際出現的 logid） | `user`、`ui`（哪個介面、哪個位址）、`action`、`cfgpath`、`cfgobj`、`cfgattr`（舊值到新值）、`cfgtid`（同一次交易的編號） |
-| 管理員登入 | `0100032001` 成功、`0100032002` 失敗、`0100032003` 登出（待查） | `user`、`ui`、`status`、`reason` |
+| 設定變更 | `0100044547` Object attribute configured（最常見）、`0100044546` Attribute configured、`0100044562`（讀取敏感表） | `user`、`ui`（哪個介面、哪個位址）、`action`、`cfgpath`、`cfgobj`、`cfgattr`（舊值到新值）、`cfgtid`（同一次交易的編號） |
+| 管理員登入 | `0100032001` 成功、`0100032002` 失敗（level alert，`reason` 例如 `internal_error`）、`0100032003` 登出（`reason` 例如 `timeout`，帶 `duration`） | `user`、`ui`、`status`、`reason` |
+| 管理員的其他動作 | `0100032095` 從 GUI 執行（例如下載設定）、`0100032096` 下載日誌、`0100032102` session 結束時的 Configuration changed | `user`、`ui`、`msg` |
 | 系統 | 重開機、韌體升級、HA 狀態 | `logdesc`、`msg` |
 
-`audit-report.py` 用的是 `cfgpath` 存在與否來認設定變更，不依賴 logid，logid 只用在登入那一組。第一週收到的 logid 清單要回頭核對這張表【待填】。
+`audit-report.py` 用的是 `cfgpath` 存在與否來認設定變更，不依賴 logid，logid 只用在登入那一組。上表是 60F 記憶體日誌 2026-10-03 到 10-11 實際出現過的 logid。
+
+`ui` 記的是連線的來源位址。REST API 的變更記成 `ui="https(<工作站>)"`；經 tailnet 進來的管理連線，`ui` 是 NAS 的位址，因為 NAS 是 tailnet 的 subnet router，會做 SNAT。看到 NAS 的位址不代表是 NAS 自己改的。
+
+登入失敗的 `user` 欄記的是對方送來的帳號字串，可能是打錯的密碼或 API token 的一部分（這台在 10/07 就有一筆）。報告與截圖對外前要看過這一欄。
 
 ## 進 WORM 的量
 
-事件日誌的量與 traffic 差好幾個量級。這台一天的設定變更與登入通常在百筆以內，一年不到 1 MB。`archive-day.sh` 自動發現 `audit` 來源，`MANIFEST.tsv` 多一列 `audit-fgt-edge`，`verify-archive.sh` 用同樣的「行數等於查詢筆數」對帳。retention.md 的三層表因此多一列。
+事件日誌的量與 traffic 差好幾個量級。排除 wireless 後，這台一天約 500 筆，其中 288 筆是每 5 分鐘一筆的 `0100040704` System performance statistics，174 筆是 `0100026001` DHCP Ack，設定變更與登入只佔個位數。以封存檔的格式壓縮後一天約 28 KB，一年約 10 MB。`archive-day.sh` 自動發現 `audit` 來源，`MANIFEST.tsv` 多一列 `audit-fgt-edge`，`verify-archive.sh` 用同樣的「行數等於查詢筆數」對帳。retention.md 的三層表因此多一列。

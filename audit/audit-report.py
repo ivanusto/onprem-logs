@@ -310,6 +310,8 @@ def main():
     ap.add_argument("--out"); ap.add_argument("--textfile")
     a = ap.parse_args()
     now = dt.datetime.now(dt.timezone.utc)
+    if a.since and not a.until:  # the header and every query then say where the report stops
+        a.until = now.isoformat(timespec="seconds").replace("+00:00", "Z")
     try:
         q(a.vl, "* | limit 1")
     except Exception as e:
