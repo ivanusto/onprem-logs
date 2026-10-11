@@ -1,0 +1,12 @@
+# audit/ignore.txt: routine actions that are not changes. One rule per line,
+# <source><TAB><regex>, matched against "who what" of a row; source * means
+# every source. Keep it short: every line here is a thing the audit will
+# never ask about again, so each one should be obviously routine.
+#
+# Proxmox VE nightly backup (Day 16) and the apt metadata refresh PVE runs
+pve-task	^root@pam vzdump\b
+pve-task	^root@pam aptupdate\b
+# HA manager starting or migrating guests on its own (Day 15): the task user
+# is root@pam and the id is the VM; a manual start looks the same, so this
+# stays off by default. Uncomment only once ha-manager noise is a problem.
+# pve-task	^root@pam qm(start|stop|migrate) \d+$

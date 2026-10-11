@@ -21,6 +21,11 @@
 # Layout
 #   $ARCHIVE/2026/10/03/journald-pve1.jsonl.gz
 #   $ARCHIVE/2026/10/03/syslog-nas-primary.jsonl.gz
+#   $ARCHIVE/2026/10/03/audit-fgt-edge.jsonl.gz     (Day 27: rows with an
+#             audit field, the FortiGate event log on the 515 listener; the
+#             syslog-<devname> source then excludes them, so a line is in
+#             exactly one file and ARCHIVE_SKIP on the traffic does not
+#             touch the audit trail)
 #   $ARCHIVE/2026/10/03/MANIFEST.tsv       source  lines  hits  bytes  sha256
 #   $ARCHIVE/2026/10/03/SHA256SUMS
 #
@@ -66,8 +71,10 @@ values() { # $1 field_values response
 }
 resp=$($CURL "$VL/select/logsql/field_values" -d "query=_time:[$start,$end) _HOSTNAME:*" -d "field=_HOSTNAME")
 hosts_j=$(values "$resp")
-resp=$($CURL "$VL/select/logsql/field_values" -d "query=_time:[$start,$end) hostname:*" -d "field=hostname")
+resp=$($CURL "$VL/select/logsql/field_values" -d "query=_time:[$start,$end) hostname:* -audit:*" -d "field=hostname")
 hosts_s=$(values "$resp")
+resp=$($CURL "$VL/select/logsql/field_values" -d "query=_time:[$start,$end) audit:*" -d "field=hostname")
+hosts_a=$(values "$resp")
 
 : > "$st/.rows"
 : > "$st/.skipped"
@@ -111,7 +118,8 @@ export_one() { # $1 source name  $2 LogsQL filter
 }
 
 for h in $hosts_j; do export_one "journald-$h" "_HOSTNAME:=\"$h\""; done
-for h in $hosts_s; do export_one "syslog-$h"   "hostname:=\"$h\""; done
+for h in $hosts_s; do export_one "syslog-$h"   "hostname:=\"$h\" -audit:*"; done
+for h in $hosts_a; do export_one "audit-$h"    "hostname:=\"$h\" audit:*"; done
 
 if [ ! -s "$st/.rows" ]; then
   echo "archive-day: no logs for $day" >&2

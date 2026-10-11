@@ -34,7 +34,8 @@ grep -v '^#' "$dir/MANIFEST.tsv" | while IFS="$(printf '\t')" read -r name lines
   if [ "$live" -eq 1 ]; then
     case "$name" in
       journald-*) f="_HOSTNAME:=\"${name#journald-}\"" ;;
-      syslog-*)   f="hostname:=\"${name#syslog-}\"" ;;
+      syslog-*)   f="hostname:=\"${name#syslog-}\" -audit:*" ;;
+      audit-*)    f="hostname:=\"${name#audit-}\" audit:*" ;;
     esac
     # a failed request must not read as 0
     if resp=$(curl -sS --fail "$VL/select/logsql/query" -d "query=_time:[$start,$end) $f | stats count() as n"); then

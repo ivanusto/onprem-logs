@@ -14,9 +14,15 @@ services:
       - -journald.ignoreFields=_CAP_EFFECTIVE,_SYSTEMD_INVOCATION_ID,_SOURCE_MONOTONIC_TIMESTAMP,__MONOTONIC_TIMESTAMP,_BOOT_ID
       - -journald.useRemoteIP=true
       # syslog from QuLog Center Log Sender (and anything else that speaks RFC 3164/5424)
-      - -syslog.listenAddr.tcp=:514
+      # on 514; the edge FortiGate's event log (config changes, admin logins)
+      # on 515 (Day 27). The second listener stamps audit="fortigate" on every
+      # line, so the audit trail is its own stream and its own archive source
+      # (audit-<devname>) while the traffic log on 514 stays out of the WORM
+      # share (ARCHIVE_SKIP). One value per listener, in listener order.
+      - -syslog.listenAddr.tcp=:514,:515
       - -syslog.listenAddr.udp=:514
-      - -syslog.streamFields.tcp=["hostname","app_name"]
+      - -syslog.streamFields.tcp=["hostname","app_name"],["hostname","audit"]
+      - -syslog.extraFields.tcp={},{"audit":"fortigate"}
       - -syslog.streamFields.udp=["hostname","app_name"]
       - -syslog.timezone=Asia/Taipei              # RFC 3164 has no zone; QuLog sends local time (待確認)
       - -loggerFormat=json
@@ -27,6 +33,7 @@ services:
                                  # through INPUT and would skip DOCKER-USER
       - "0.0.0.0:514:514/tcp"
       - "0.0.0.0:514:514/udp"
+      - "0.0.0.0:515:515/tcp"   # FortiGate syslogd3, event log only (audit/fortigate-syslogd3.md)
     volumes:
       - victorialogs-data:/victoria-logs-data
     restart: unless-stopped

@@ -83,3 +83,17 @@ FortiGate 真正適合進封存的是設定變更事件（`type="event" subtype=
 2. 要不要封存。AUP 稽核通常要的是「查得到最近幾個月」，「六個月後證明沒改過」較少被問到。要封存時另開只送 webfilter 的 syslog 目的地，讓它成為獨立的來源名稱，再從 `ARCHIVE_SKIP` 放出來，與 Day 27 的 event 做法相同。
 
 最小化在來源端做：`certificate-inspection` 只記 `hostname`，`url` 是 `/`，看不到頁面。報告（`aup-report.py`）與 viewer 都不用 `url` 決定網站。匯出檔是離線那條線的副本，看完刪。
+
+## 稽核軌跡（Day 27）
+
+管理動作的紀錄大多早就在三層裡了，Day 27 只是開始讀它們。節點與收集端的 sudo、sshd、pvedaemon 在 journald，走 `journald-<主機>` 的來源，天天進 WORM。NAS 的事件日誌在 `syslog-<NAS>` 裡，一樣進 WORM。新加的是 FortiGate 的事件日誌（設定變更、管理員登入），走 515 的監聽器，帶 `audit="fortigate"`，是獨立的來源 `audit-fgt-edge`，天天進 WORM，`ARCHIVE_SKIP` 排除的 `syslog-fgt-edge` 現在只含 traffic。
+
+三層表因此多一列：
+
+| 層 | 在哪 | 期限 |
+|---|---|---|
+| 來源 | FortiGate 記憶體日誌（環狀，約半天） | 到被覆寫為止 |
+| 熱 | VictoriaLogs，`audit:=fortigate` | 90 天 |
+| 封存 | WORM 的 `audit-<設備名稱>.jsonl.gz`，每日一檔 | 180 天（暫定，待確認），與其他來源相同 |
+
+變更單本身在 onprem-changes 的 git 歷史裡，不在這三層。`audit-report.py` 每週一把兩邊對一次，報告放 `/srv/reports/`，報告不是證據，證據是 WORM 裡的那幾個檔與 git log。

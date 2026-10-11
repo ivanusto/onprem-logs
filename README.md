@@ -30,6 +30,9 @@ Log collection and retention for a small on-prem AI lab. Two DGX Spark nodes and
 | `firewall/aup-report.py`, `firewall/fortigate-webfilter.md`, `firewall/rules-aup.yml` | collector, cron every 10 min and Monday 08:25 | Day 24. Acceptable-use review of the edge FortiGate's web-filter log: sites per workstation, categories, blocked per workstation, hits on the urgent categories. Online from VictoriaLogs or offline from an export file with `--from-file`, the same seven normalized fields either way. Markdown for people, `aup.prom` for onprem-metrics' `aup.yml`. The .md holds the FortiGate change (monitor-all profile on policy 1) and the LogsQL |
 | `firewall/aup-compare.sh`, `firewall/fortigate-export-load.py` | anywhere with docker or a VictoriaLogs binary | Loads an export into a throwaway VictoriaLogs the way the live feed stores it, runs aup-report online and offline on it, diffs the two reports; the browser viewer ([fortigate-log-viewer](https://github.com/ivanusto/fortigate-log-viewer)) is the third reading |
 | `tests/smoke-aup.sh` | CI and local | online == offline on the fixture, the file reconciles (lines = parsed + skipped), non-webfilter lines stay out, textfile writes every urgent category and a silent FortiGate as 0, a line without a time is skipped by the loader and shows up as the one difference |
+| `audit/audit-report.py`, `audit/ignore.txt`, `audit/queries.md`, `audit/rules-audit.yml`, `audit/collector.cron` | collector, cron every 10 min and Monday 08:45 | Day 27. Every administrative action the pipeline already holds (FortiGate config changes and admin logins, Proxmox tasks, sudo and SSH logins, QuLog events) matched against the change windows in an onprem-changes clone: attributed, unattributed, ignored by `ignore.txt`, and done records whose window has no change-mark line. Markdown for people, `audit.prom` for onprem-metrics' `audit.yml` |
+| `audit/fortigate-syslogd3.md` | FortiGate, collector | The FortiGate's event log on its own syslog destination to port 515; the collector's second listener stamps `audit="fortigate"`, so the events are their own stream and their own archive source (`audit-<devname>`) while the traffic log stays out of the WORM share |
+| `tests/smoke-audit.sh` | CI and local | Two listeners, one line of every action shape, three fake change records: attribution, ignore list, missing marks, the textfile, and the archive exporting `audit-*` as its own source while the traffic is skipped |
 
 ## Why not Graylog, Loki, or QuLog Center alone
 
@@ -76,6 +79,7 @@ VLBIN=/path/to/victoria-logs-prod sh tests/smoke.sh    # or leave VLBIN unset to
 sh tests/smoke-firewall.sh
 sh tests/smoke-pcap.sh                                 # as root it also captures on lo; SMOKE_PCAP_REAL=0 skips that
 sh tests/smoke-aup.sh                                  # VLBIN or docker, like smoke.sh
+sh tests/smoke-audit.sh
 ```
 
 ## License

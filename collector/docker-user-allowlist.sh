@@ -11,7 +11,8 @@
 #
 # Environment (space separated)
 #   JOURNALD_FROM  hosts allowed to POST to 9428/tcp (nodes)
-#   SYSLOG_FROM    hosts allowed to send to 514/tcp+udp (NAS)
+#   SYSLOG_FROM    hosts allowed to send to 514/tcp+udp (NAS, FortiGate traffic)
+#   AUDIT_FROM     hosts allowed to send to 515/tcp (FortiGate event log, Day 27)
 #   ADMIN_FROM     extra hosts allowed on 9428 (query from a workstation)
 #   LOG_DROPS      1 (default) puts a rate-limited LOG in front of each DROP,
 #                  prefix "[DOCKER-USER DROP] ", so refused senders show up
@@ -19,6 +20,7 @@
 set -eu
 JOURNALD_FROM=${JOURNALD_FROM:-}
 SYSLOG_FROM=${SYSLOG_FROM:-}
+AUDIT_FROM=${AUDIT_FROM:-}
 ADMIN_FROM=${ADMIN_FROM:-}
 LOG_DROPS=${LOG_DROPS:-1}
 CH=ONPREM-LOGS
@@ -46,6 +48,9 @@ for h in $SYSLOG_FROM; do
   iptables -A "$CH" -s "$h" -p tcp -m conntrack --ctorigdstport 514 -j RETURN
   iptables -A "$CH" -s "$h" -p udp -m conntrack --ctorigdstport 514 -j RETURN
 done
+for h in $AUDIT_FROM; do
+  iptables -A "$CH" -s "$h" -p tcp -m conntrack --ctorigdstport 515 -j RETURN
+done
 # the containers' own network (Grafana -> victorialogs:9428) is not DNAT'ed
 drop() {
   # one LOG per DROP with the same match, so only what is dropped is logged;
@@ -59,5 +64,6 @@ drop() {
 drop tcp 9428
 drop tcp 514
 drop udp 514
+drop tcp 515
 iptables -I DOCKER-USER 1 -j "$CH"
 iptables -S "$CH"

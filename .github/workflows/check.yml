@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: shellcheck -s sh archive/*.sh node/*.sh collector/*.sh grafana/*.sh firewall/*.sh pcap/*.sh tests/*.sh
-      - run: python3 -m py_compile firewall/fw-report.py firewall/aup-report.py firewall/fortigate-export-load.py pcap/pcap-stat.py
+      - run: python3 -m py_compile firewall/fw-report.py firewall/aup-report.py firewall/fortigate-export-load.py pcap/pcap-stat.py audit/audit-report.py
       - run: systemd-analyze verify pcap/pcap@.service || true   # the runner has no /etc/pcap/*.env
       - run: sudo visudo -cf pcap/sudoers-pcap
       - run: docker compose -f docker-compose.yml config -q || true   # external network is absent in CI
@@ -22,3 +22,5 @@ jobs:
         run: sudo apt-get install -y -qq tcpdump && sudo sh tests/smoke-pcap.sh
       - name: smoke-aup (export into a throwaway VictoriaLogs, online report == offline report, textfile)
         run: sh tests/smoke-aup.sh
+      - name: smoke-audit (two listeners, every action shape, attribution against fake change records, audit archive source)
+        run: sh tests/smoke-audit.sh

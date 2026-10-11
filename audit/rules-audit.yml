@@ -1,0 +1,33 @@
+# Day 27: copy of onprem-metrics prometheus/rules/audit.yml, kept here so the
+# audit/ directory is complete on its own. The onprem-metrics copy is the one
+# Prometheus loads; change both together.
+groups:
+  - name: audit
+    rules:
+      - alert: AuditReportStale
+        expr: time() - audit_report_last_run_timestamp > 1800
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "audit-report has not run for 30 minutes, audit metrics are stale"}
+      # A FortiGate configuration change with no change record open: either
+      # someone is working without a record (the thing Day 26 forbids) or an
+      # emergency change that still has to be written up within 24 hours.
+      # Warning on the first one; it is the edge firewall.
+      - alert: AuditUnattributedFortigateChange
+        expr: audit_unattributed{source="fortigate-config"} > 0
+        labels: {severity: warning}
+        annotations: {summary: "{{ $value }} FortiGate configuration change(s) in the last hour outside any change window; open or backfill a record (CR, type emergency)"}
+      # Everything else unattributed (PVE tasks, sudo, logins, NAS events) is
+      # for the daily digest and the Monday report: most are routine and
+      # become ignore-list rules, the rest become records.
+      - alert: AuditUnattributedActions
+        expr: sum(audit_unattributed) > 0
+        labels: {severity: info}
+        annotations: {summary: "{{ $value }} administrative action(s) in the last hour outside any change window, see the audit report"}
+      # A record marked done whose window holds no change-mark begin line:
+      # executed without change-mark.sh, so the journal, the annotation and
+      # the silence are missing. Backfilled records are excluded by the tag.
+      - alert: AuditChangeWithoutMarks
+        expr: audit_changes_without_marks > 0
+        labels: {severity: info}
+        annotations: {summary: "{{ $value }} done change record(s) with no change-mark begin line in their window"}
