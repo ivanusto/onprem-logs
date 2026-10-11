@@ -1,12 +1,21 @@
 # audit/ignore.txt: routine actions that are not changes. One rule per line,
 # <source><TAB><regex>, matched against "who what" of a row; source * means
 # every source. Keep it short: every line here is a thing the audit will
-# never ask about again, so each one should be obviously routine.
+# never ask about again, so each one should be obviously routine, and the
+# commit that adds it says why.
 #
-# Proxmox VE nightly backup (Day 16) and the apt metadata refresh PVE runs
-pve-task	^root@pam vzdump\b
-pve-task	^root@pam aptupdate\b
-# HA manager starting or migrating guests on its own (Day 15): the task user
-# is root@pam and the id is the VM; a manual start looks the same, so this
-# stays off by default. Uncomment only once ha-manager noise is a problem.
-# pve-task	^root@pam qm(start|stop|migrate) \d+$
+# Proxmox VE's daily apt metadata refresh (pve-daily-update.timer)
+pve-task	^root@pam aptupdate \(pveupdate\)$
+#
+# Machine logins are told apart by key, not by address: one address can be
+# several machines and people (a NAS that also routes the tailnet with SNAT).
+# A collector job that logs in with a key restricted on the node, e.g.
+# Day 19's pve-quorum-textfile (every minute) and Day 23's pcap pull:
+# ssh-login	^root login publickey from 192\.168\.2\.49 key ED25519 SHA256:<fingerprint>$
+# ssh-login	^pcap login publickey from 192\.168\.2\.49 key ED25519 SHA256:<fingerprint>$
+#
+# The HA manager starting or stopping guests on its own (pve-ha-lrm): a
+# manual start from the GUI comes from pvedaemon, from the shell from qm,
+# so the identifier keeps the two apart. Off by default; enable once the
+# HA noise is understood.
+# pve-task	^root@pam qm(start|stop|migrate) \d+ \(pve-ha-lrm\)$
