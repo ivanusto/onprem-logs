@@ -14,7 +14,16 @@
 #      the existing history is not sent; without it the whole journal on
 #      disk is uploaded once (VictoriaLogs drops what is older than its
 #      retention)
-#   5. enable and start systemd-journal-upload.service, then show the cursor
+#   5. retry for ever: the stock unit restarts after 100 ms and gives up
+#      after five failures in ten seconds. At boot network-online.target can
+#      be reached before the collector is routable ("Failed to connect ...
+#      after 0 ms"), the five tries are spent within a second, and the host
+#      stops shipping until someone restarts the unit (spark02 went silent
+#      this way on 2026-10-07 and again on 10-12). A drop-in retries every
+#      30 s with no start limit.
+#   6. enable and (re)start systemd-journal-upload.service, then show the
+#      cursor. Running the script again on a host is how the drop-in gets
+#      there; the existing cursor is kept.
 #
 # The unit runs with DynamicUser=yes and StateDirectory=, so there is no
 # static systemd-journal-upload user and the cursor lives in
@@ -22,7 +31,7 @@
 set -eu
 
 URL=${1:-}
-[ -n "$URL" ] || { sed -n '2,22p' "$0"; exit 64; }
+[ -n "$URL" ] || { sed -n '2,30p' "$0"; exit 64; }
 FROM_NOW=0; [ "${2:-}" = "--from-now" ] && FROM_NOW=1
 [ "$(id -u)" -eq 0 ] || { echo "run as root" >&2; exit 1; }
 
@@ -65,8 +74,23 @@ if [ "$FROM_NOW" -eq 1 ] && [ ! -s "$state" ]; then
   printf '# This is private data. Do not parse.\nLAST_CURSOR=%s\n' "$cursor" > "$state"
 fi
 
-# 5. run
-systemctl enable --now systemd-journal-upload.service
+# 5. retry for ever
+mkdir -p /etc/systemd/system/systemd-journal-upload.service.d
+cat > /etc/systemd/system/systemd-journal-upload.service.d/10-retry.conf <<'EOF'
+# written by onprem-logs/node/install-journal-upload.sh
+# keep trying when the collector is not reachable yet (boot) or down
+[Unit]
+StartLimitIntervalSec=0
+[Service]
+Restart=on-failure
+RestartSec=30s
+EOF
+systemctl daemon-reload
+
+# 6. run
+systemctl enable systemd-journal-upload.service
+systemctl reset-failed systemd-journal-upload.service 2>/dev/null || true
+systemctl restart systemd-journal-upload.service
 sleep 3
 systemctl --no-pager --lines=5 status systemd-journal-upload.service || true
 echo
