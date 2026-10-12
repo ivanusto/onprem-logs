@@ -55,6 +55,13 @@ _time:[2026-10-10T22:45:00+08:00, 2026-10-10T23:45:00+08:00)
   (audit:=fortigate OR "starting task UPID:" OR SYSLOG_IDENTIFIER:in(sudo, sshd, sshd-session, change) OR "event log:")
   | fields _time, _HOSTNAME, hostname, SYSLOG_IDENTIFIER, _msg | sort by (_time)
 
+# 一個 sudo 是從哪裡登入的：sudo 那一行有 _AUDIT_SESSION，sshd 的 Accepted 沒有；
+# systemd-logind 在 Accepted 之後幾十毫秒寫 New session N of user U.，用主機、帳號
+# 與時間把兩者串起來（audit-report.py 的 --quiet-from 就是這樣判斷管理工作站）
+_time:1d _HOSTNAME:=collector SYSLOG_IDENTIFIER:=sudo | fields _time, _AUDIT_SESSION, _msg
+_time:1d _HOSTNAME:=collector ((SYSLOG_IDENTIFIER:in(sshd, sshd-session) "Accepted ") OR (SYSLOG_IDENTIFIER:=systemd-logind "New session"))
+  | fields _time, SYSLOG_IDENTIFIER, _msg | sort by (_time)
+
 # 變更單的標記本身（change-mark.sh 與操作者手敲的 logger -t change）
 _time:7d SYSLOG_IDENTIFIER:=change | fields _time, _HOSTNAME, _msg | sort by (_time)
 ```

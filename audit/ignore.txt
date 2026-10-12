@@ -8,11 +8,21 @@
 pve-task	^root@pam aptupdate \(pveupdate\)$
 #
 # Machine logins are told apart by key, not by address: one address can be
-# several machines and people (a NAS that also routes the tailnet with SNAT).
-# A collector job that logs in with a key restricted on the node, e.g.
-# Day 19's pve-quorum-textfile (every minute) and Day 23's pcap pull:
+# several machines and people (a NAS that also routes the tailnet with SNAT),
+# and one machine can change address (the lab's NAS has two LAN addresses
+# and its outbound traffic moved from one to the other on 2026-10-11; a rule
+# that named the address stopped matching). Match the key and let the
+# address be anything, unless the key is also pinned to an address on the
+# node (from= in authorized_keys). A collector job that logs in with a key
+# restricted on the node, e.g. Day 19's pve-quorum-textfile (every minute)
+# and Day 23's pcap pull, and a backup appliance's inventory key:
 # ssh-login	^root login publickey from 192\.168\.2\.49 key ED25519 SHA256:<fingerprint>$
 # ssh-login	^pcap login publickey from 192\.168\.2\.49 key ED25519 SHA256:<fingerprint>$
+# ssh-login	^root login publickey from \S+ key ED25519 SHA256:<fingerprint>$
+#
+# People at the admin workstations are not routine and do not belong here:
+# list those addresses in AUDIT_QUIET_FROM instead (audit/collector.cron),
+# which keeps their actions in the report and only out of the alert.
 #
 # The HA manager starting or stopping guests on its own (pve-ha-lrm): a
 # manual start from the GUI comes from pvedaemon, from the shell from qm,

@@ -8,6 +8,10 @@
 #   2. the textfile carries the same numbers
 #   3. archive-day.sh exports the audit stream as its own source while the
 #      traffic on 514 is skipped, and verify-archive.sh accepts the day
+#   4. --quiet-from marks an admin workstation's SSH logins, the sudo inside
+#      its login session (traced through logind) and its FortiGate login,
+#      leaves them out of audit_unattributed, and does not trace a session
+#      whose lead-in has the same user logging in from two addresses
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 tmp=$(mktemp -d); pid=""; cid=""
@@ -46,6 +50,17 @@ earlier=$((now - 1800))     # 30 minutes ago: outside the change window below
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=sudo\nPRIORITY=3\nMESSAGE=  ops : a password is required ; PWD=/home/ops ; USER=root ; COMMAND=/usr/bin/true\n\n' "$(us "$earlier")"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=pve-t\n_SYSTEMD_UNIT=ssh.service\nSYSLOG_IDENTIFIER=sshd-session\nPRIORITY=6\nMESSAGE=Accepted publickey for root from 10.0.0.10 port 50000 ssh2: ED25519 SHA256:abc\n\n' "$(us "$now")"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=ssh.service\nSYSLOG_IDENTIFIER=sshd\nPRIORITY=6\nMESSAGE=Accepted password for ops from 10.0.0.2 port 50001 ssh2\n\n' "$(us "$earlier")"
+  # an admin workstation (10.0.0.9) logs in, logind opens session 77 20 ms
+  # later, a sudo runs in it; then user amb logs in from 10.0.0.9 and from
+  # 10.0.0.3 half a second apart, so session 78 cannot be traced
+  w=$((earlier + 10)); wu=$(us "$w")
+  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=ssh.service\nSYSLOG_IDENTIFIER=sshd\nPRIORITY=6\nMESSAGE=Accepted publickey for ops from 10.0.0.9 port 50010 ssh2: ED25519 SHA256:ws\n\n' "$wu"
+  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=systemd-logind.service\nSYSLOG_IDENTIFIER=systemd-logind\nPRIORITY=6\nMESSAGE=New session 77 of user ops.\n\n' "$((wu + 20000))"
+  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-77.scope\n_AUDIT_SESSION=77\nSYSLOG_IDENTIFIER=sudo\nPRIORITY=5\nMESSAGE=    ops : PWD=/home/ops ; USER=root ; COMMAND=/usr/bin/journalctl -n 5\n\n' "$((wu + 5000000))"
+  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=ssh.service\nSYSLOG_IDENTIFIER=sshd\nPRIORITY=6\nMESSAGE=Accepted publickey for amb from 10.0.0.9 port 50011 ssh2: ED25519 SHA256:ws\n\n' "$((wu + 60000000))"
+  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=ssh.service\nSYSLOG_IDENTIFIER=sshd\nPRIORITY=6\nMESSAGE=Accepted publickey for amb from 10.0.0.3 port 50012 ssh2: ED25519 SHA256:other\n\n' "$((wu + 60500000))"
+  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=systemd-logind.service\nSYSLOG_IDENTIFIER=systemd-logind\nPRIORITY=6\nMESSAGE=New session 78 of user amb.\n\n' "$((wu + 60520000))"
+  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-78.scope\n_AUDIT_SESSION=78\nSYSLOG_IDENTIFIER=sudo\nPRIORITY=5\nMESSAGE=    amb : PWD=/home/amb ; USER=root ; COMMAND=/usr/bin/id\n\n' "$((wu + 63000000))"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=change\nPRIORITY=5\nMESSAGE=CR-2026-0004 begin smoke change\n\n' "$(us $((now - 7000)))"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=change\nPRIORITY=5\nMESSAGE=CR-2026-0001 begin smoke change\n\n' "$(us $((now - 60)))"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=change\nPRIORITY=5\nMESSAGE=CR-2026-0001 end smoke change\n\n' "$(us $((now + 60)))"
@@ -75,7 +90,7 @@ rec CR-2026-0003 "done" "$(iso $((now - 10800)))" "$(iso $((now - 7200)))" smoke
 rec CR-2026-0004 "done" "$(iso $((now - 7200)))" "$(iso $((now - 2400)))" smoke
 
 python3 -I "$here/audit/audit-report.py" --vl "$VL" --window 1d --changes "$tmp/changes" --out "$tmp/r.md" --textfile "$tmp/audit.prom"
-grep -q '^管理動作 8 筆（忽略清單排除 1 筆），有變更單的 4 筆，沒有的 4 筆$' "$tmp/r.md" || { echo "summary line wrong"; sed -n 1,6p "$tmp/r.md"; exit 1; }
+grep -q '^管理動作 13 筆（忽略清單排除 1 筆），有變更單的 4 筆，沒有的 9 筆$' "$tmp/r.md" || { echo "summary line wrong"; sed -n 1,6p "$tmp/r.md"; exit 1; }
 grep -q 'sudo | coll-t | ops | as root: /usr/bin/systemctl restart grafana' "$tmp/r.md" || { echo "sudo row missing from unattributed"; cat "$tmp/r.md"; exit 1; }
 grep -q 'sudo | coll-t | ops | REFUSED as root: /usr/bin/true' "$tmp/r.md" || { echo "refused sudo without a terminal missing"; cat "$tmp/r.md"; exit 1; }
 grep -q 'ssh-login | coll-t | ops | login password from 10.0.0.2 |' "$tmp/r.md" || { echo "sshd (9.6) login missing"; cat "$tmp/r.md"; exit 1; }
@@ -89,15 +104,15 @@ grep -q 'aptupdate' "$tmp/r.md" && { echo "aptupdate should be ignored"; exit 1;
 grep -q 'CR-2026-0004 | smoke' "$tmp/r.md" && { echo "CR-0004 has its begin mark inside its own window"; exit 1; }
 grep -q 'CR-2026-0003 | smoke CR-2026-0003' "$tmp/r.md" || { echo "CR-0003 should be listed without marks"; cat "$tmp/r.md"; exit 1; }
 grep -q 'CR-2026-0002' "$tmp/r.md" && { echo "a backfilled record is not expected to have marks"; exit 1; }
-for want in 'audit_actions{source="fortigate-config"} 1' 'audit_actions{source="pve-task"} 1' 'audit_actions{source="sudo"} 2' 'audit_actions{source="ssh-login"} 2' 'audit_actions{source="nas-event"} 1' \
-            'audit_unattributed{source="sudo"} 2' 'audit_unattributed{source="ssh-login"} 1' 'audit_unattributed{source="fortigate-login"} 1' 'audit_unattributed{source="fortigate-config"} 0' 'audit_changes_without_marks 1'; do
+for want in 'audit_actions{source="fortigate-config"} 1' 'audit_actions{source="pve-task"} 1' 'audit_actions{source="sudo"} 4' 'audit_actions{source="ssh-login"} 5' 'audit_actions{source="nas-event"} 1' \
+            'audit_unattributed{source="sudo"} 4' 'audit_unattributed{source="ssh-login"} 4' 'audit_unattributed_quiet{source="sudo"} 0' 'audit_unattributed{source="fortigate-login"} 1' 'audit_unattributed{source="fortigate-config"} 0' 'audit_changes_without_marks 1'; do
   grep -qF "$want" "$tmp/audit.prom" || { echo "textfile lacks: $want"; cat "$tmp/audit.prom"; exit 1; }
 done
 [ "$(stat -c %a "$tmp/audit.prom")" = 644 ] || { echo "textfile mode"; exit 1; }
 # an absolute range that misses every change record: all unattributed, no sections
 python3 -I "$here/audit/audit-report.py" --vl "$VL" --since "$(iso $((now - 3600)))" --until "$(iso $((now + 3600)))" --changes "$tmp/nochanges" > "$tmp/r2.md" 2>"$tmp/r2.err"
 grep -q 'no change records' "$tmp/r2.err" || { cat "$tmp/r2.err"; exit 1; }
-grep -q '有變更單的 0 筆，沒有的 8 筆' "$tmp/r2.md" || { sed -n 1,4p "$tmp/r2.md"; exit 1; }
+grep -q '有變更單的 0 筆，沒有的 13 筆' "$tmp/r2.md" || { sed -n 1,4p "$tmp/r2.md"; exit 1; }
 # the 1 h run the textfile cron does: CR-0004 ended inside it and its begin
 # mark is two hours old, outside the report range but inside its window
 python3 -I "$here/audit/audit-report.py" --vl "$VL" --window 1h --changes "$tmp/changes" --out /dev/null --textfile "$tmp/audit1h.prom"
@@ -105,6 +120,19 @@ grep -qx 'audit_changes_without_marks 0' "$tmp/audit1h.prom" || { echo "1 h run:
 # a source that hits --limit says so
 python3 -I "$here/audit/audit-report.py" --vl "$VL" --window 1d --limit 1 --changes "$tmp/changes" --out /dev/null 2>"$tmp/lim.err"
 grep -q 'sudo hit --limit 1' "$tmp/lim.err" || { echo "limit warning missing"; cat "$tmp/lim.err"; exit 1; }
+# admin workstations: 10.0.0.9's two SSH logins and the sudo in its session,
+# 10.0.0.10's FortiGate login; the ambiguous session's sudo and the login
+# from 10.0.0.3 still count
+AUDIT_QUIET_FROM="10.0.0.9 10.0.0.10" python3 -I "$here/audit/audit-report.py" --vl "$VL" --window 1d --changes "$tmp/changes" --out "$tmp/rq.md" --textfile "$tmp/auditq.prom"
+for want in 'audit_unattributed{source="ssh-login"} 2' 'audit_unattributed_quiet{source="ssh-login"} 2' 'audit_unattributed{source="sudo"} 3' 'audit_unattributed_quiet{source="sudo"} 1' \
+            'audit_unattributed{source="fortigate-login"} 0' 'audit_unattributed_quiet{source="fortigate-login"} 1' 'audit_unattributed{source="fortigate-config"} 0'; do
+  grep -qF "$want" "$tmp/auditq.prom" || { echo "quiet textfile lacks: $want"; cat "$tmp/auditq.prom"; exit 1; }
+done
+grep -q '^沒有變更單的動作裡，4 筆來自管理工作站（10.0.0.10 10.0.0.9）' "$tmp/rq.md" || { echo "quiet summary line missing"; sed -n 1,8p "$tmp/rq.md"; exit 1; }
+grep -q 'sudo | coll-t | ops（工作站） | as root: /usr/bin/journalctl -n 5' "$tmp/rq.md" || { echo "sudo in the workstation session not marked"; cat "$tmp/rq.md"; exit 1; }
+grep -q 'sudo | coll-t | amb | as root: /usr/bin/id' "$tmp/rq.md" || { echo "ambiguous session should not be marked"; cat "$tmp/rq.md"; exit 1; }
+grep -q 'ssh-login | coll-t | amb | login publickey from 10.0.0.3' "$tmp/rq.md" || { echo "login from 10.0.0.3 should not be marked"; cat "$tmp/rq.md"; exit 1; }
+grep -q '（工作站）' "$tmp/r.md" && { echo "without --quiet-from nothing is marked"; exit 1; }
 
 # archive: the audit stream is its own source, the traffic on 514 is skipped
 day=$(date -u +%Y-%m-%d)

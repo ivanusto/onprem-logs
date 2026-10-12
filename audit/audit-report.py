@@ -23,9 +23,20 @@ own key, and so on. A done
 record with no `change` journal mark inside its window is listed too: it was
 either backfilled (fine, says so) or executed without change-mark.sh.
 
+Admin workstations (--quiet-from, AUDIT_QUIET_FROM): addresses whose own
+actions stay in the report, marked, but do not count towards the alert. An
+SSH login from one of them, a FortiGate GUI login from one (ui=https(<ip>)),
+and a sudo inside a login session that came from one. sudo lines carry no
+address; they carry _AUDIT_SESSION, and systemd-logind writes "New session N
+of user U." a few milliseconds after sshd's "Accepted ... from <ip>", so a
+session is traced to its address when exactly one address logged that user
+in on that host in the two seconds before. Config changes, Proxmox tasks and
+NAS events are never quiet.
+
 Textfile
     audit_actions{source}            actions in the window, ignore list applied
-    audit_unattributed{source}       of those, outside every change window
+    audit_unattributed{source}       of those, outside every change window, admin workstations left out
+    audit_unattributed_quiet{source} the unattributed ones that came from an admin workstation
     audit_changes_without_marks      done records in the window with no begin/end mark
     audit_report_last_run_timestamp
 
@@ -53,6 +64,7 @@ SOURCES = {
         "pipes": "unpack_logfmt from _msg fields (user, ui, action, status, reason, logdesc) | rename hostname as host",
         "fields": ["host", "user", "ui", "action", "status", "reason", "logdesc"],
         "who": lambda r: r.get("user", ""),
+        "origin": lambda r: (re.search(r"\(([0-9a-fA-F.:]+)\)", r.get("ui", "")) or [None, ""])[1],
         "what": lambda r: " ".join(x for x in (r.get("logdesc") or r.get("action", ""),
                                                f"reason={r['reason']}" if r.get("reason") not in (None, "", "none") else "",
                                                f"({r.get('ui', '')})") if x),
@@ -71,11 +83,12 @@ SOURCES = {
     },
     # sudo on any journald host: "ops : TTY=pts/0 ; PWD=... ; USER=root ;
     # COMMAND=...". Without a terminal there is no TTY= field, and a refused
-    # sudo says why in the same position ("a password is required ; ...")
+    # sudo says why in the same position ("a password is required ; ...").
+    # _AUDIT_SESSION is the logind session it ran in (see session_origins)
     "sudo": {
         "filter": 'SYSLOG_IDENTIFIER:=sudo "COMMAND="',
         "pipes": 'extract "<who> : " | extract " USER=<as> ;" | extract "COMMAND=<cmd>" | rename _HOSTNAME as host',
-        "fields": ["host", "who", "as", "cmd", "_msg"],
+        "fields": ["host", "who", "as", "cmd", "_msg", "_AUDIT_SESSION"],
         "who": lambda r: r.get("who", "").strip(),
         "what": lambda r: ("REFUSED " if REFUSED.search(r.get("_msg", "")) else "") + f"as {r.get('as', '')}: {r.get('cmd', '')}",
     },
@@ -88,6 +101,7 @@ SOURCES = {
         "pipes": 'extract "Accepted <method> for <who> from <ip> port <port> ssh2<key>" | rename _HOSTNAME as host',
         "fields": ["host", "method", "who", "ip", "key"],
         "who": lambda r: r.get("who", ""),
+        "origin": lambda r: r.get("ip", ""),
         "what": lambda r: f"login {r.get('method', '')} from {r.get('ip', '')}" + (f" key {r['key'].lstrip(': ').strip()}" if r.get("key", "").strip(": ") else ""),
     },
     # QuLog event log (not the connection log): settings, services, VMs,
@@ -105,6 +119,7 @@ SOURCES = {
 }
 REFUSED = re.compile(r"password is required|incorrect password|command not allowed|user NOT in sudoers|NOT allowed")
 MARKS = 'SYSLOG_IDENTIFIER:=change'
+SESSION_GAP = dt.timedelta(seconds=2)   # sshd "Accepted" to logind "New session": about 20 ms in the lab
 
 
 def q(vl, query):
@@ -134,7 +149,9 @@ def fetch(a):
             print(f"audit-report: {name} hit --limit {a.limit}, the newest rows are missing", file=sys.stderr)
         for r in got:
             rows.append({"time": parse_time(r["_time"]), "source": name, "host": r.get("host", ""),
-                         "who": src["who"](r), "what": src["what"](r)})
+                         "who": src["who"](r), "what": src["what"](r),
+                         "origin": src["origin"](r) if "origin" in src else "",
+                         "session": r.get("_AUDIT_SESSION", "")})
     rows.sort(key=lambda r: r["time"])
     return rows
 
@@ -145,6 +162,36 @@ def bounds(a, now):
         return (parse_time(a.since) if a.since else dt.datetime.min.replace(tzinfo=dt.timezone.utc),
                 parse_time(a.until) if a.until else now)
     return now - dt.timedelta(seconds=dur_seconds(a.window)), now
+
+
+def session_origins(a, lo, hi):
+    """(host, logind session id) -> the address that session logged in from.
+    Logins are read from --session-lookback before the report range, so a
+    sudo in a session opened earlier still finds its login. A session whose
+    two-second lead-in holds logins of that user from two addresses is left
+    out: better a quiet action counted than a stranger's one hidden."""
+    start = lo - dt.timedelta(seconds=dur_seconds(a.session_lookback)) if lo.year > 1 else None
+    tf = f"_time:[{start.isoformat() if start else '1970-01-01T00:00:00Z'}, {hi.isoformat()})"
+    logins = collections.defaultdict(list)
+    for r in q(a.vl, f'{tf} SYSLOG_IDENTIFIER:in(sshd, sshd-session) "Accepted " | extract "Accepted <method> for <who> from <ip> port" '
+                     f'| fields _time, _HOSTNAME, who, ip | limit {a.limit}'):
+        logins[(r.get("_HOSTNAME", ""), r.get("who", ""))].append((parse_time(r["_time"]), r.get("ip", "")))
+    out = {}
+    for r in q(a.vl, f'{tf} SYSLOG_IDENTIFIER:=systemd-logind "New session " | extract "New session <sid> of user <who>." '
+                     f'| fields _time, _HOSTNAME, sid, who | limit {a.limit}'):
+        t0 = parse_time(r["_time"])
+        ips = {ip for t, ip in logins.get((r.get("_HOSTNAME", ""), r.get("who", "")), []) if t0 - SESSION_GAP <= t <= t0}
+        if len(ips) == 1:
+            out[(r.get("_HOSTNAME", ""), r.get("sid", ""))] = ips.pop()
+    return out
+
+
+def mark_quiet(rows, quiet, a, lo, hi):
+    """flag the unattributed rows that came from an admin workstation"""
+    smap = session_origins(a, lo, hi) if quiet and any(r["source"] == "sudo" and r["session"] for r in rows) else {}
+    for r in rows:
+        origin = smap.get((r["host"], r["session"]), "") if r["source"] == "sudo" else r["origin"]
+        r["quiet"] = bool(quiet) and not r["cr"] and origin in quiet
 
 
 # ---------- change records ----------
@@ -243,17 +290,26 @@ def t(x):
     return x.astimezone(dt.timezone(dt.timedelta(hours=8))).strftime("%m-%d %H:%M:%S")
 
 
+def who(r):
+    return r["who"] + ("（工作站）" if r.get("quiet") else "")
+
+
 def render(a, rows, ignored, wins, missing, now, lo, hi):
     L = [f"# 稽核軌跡  {time_filter(a)}，產生於 {now:%Y-%m-%d %H:%M} UTC", ""]
     by_src = collections.Counter(r["source"] for r in rows)
     un = [r for r in rows if not r["cr"]]
+    nq = sum(1 for r in un if r["quiet"])
     L += [f"管理動作 {len(rows)} 筆（忽略清單排除 {ignored} 筆），有變更單的 {len(rows) - len(un)} 筆，沒有的 {len(un)} 筆", ""]
-    L += ["## 依來源", md_table(["來源", "筆數", "沒有變更單"], [(s, n, sum(1 for r in un if r["source"] == s)) for s, n in sorted(by_src.items())]), ""]
+    if nq:
+        L += [f"沒有變更單的動作裡，{nq} 筆來自管理工作站（{' '.join(sorted(a.quiet))}），標為「工作站」，不計入告警", ""]
+    L += ["## 依來源", md_table(["來源", "筆數", "沒有變更單", "其中工作站"],
+                               [(s, n, sum(1 for r in un if r["source"] == s), sum(1 for r in un if r["source"] == s and r["quiet"]))
+                                for s, n in sorted(by_src.items())]), ""]
     # the same action repeated (a key that logs in every minute) is one line
     # with a count; a week of routine would otherwise bury the one that matters
     grp = collections.OrderedDict()
     for r in un:
-        k = (r["source"], r["host"], r["who"], r["what"][:120])
+        k = (r["source"], r["host"], who(r), r["what"][:120])
         g = grp.setdefault(k, [0, r["time"], r["time"]])
         g[0] += 1; g[2] = r["time"]
     top = sorted(grp.items(), key=lambda kv: -kv[1][0])[: a.top]
@@ -263,7 +319,7 @@ def render(a, rows, ignored, wins, missing, now, lo, hi):
     if len(grp) > a.top:
         L += [f"_另 {len(grp) - a.top} 種動作未列_", ""]
     L += [f"最近 {min(len(un), a.top)} 筆：", "", md_table(["時間 (+08)", "來源", "主機", "誰", "做了什麼"],
-          [(t(r["time"]), r["source"], r["host"], r["who"], r["what"][:120]) for r in un[-a.top:]]), ""]
+          [(t(r["time"]), r["source"], r["host"], who(r), r["what"][:120]) for r in un[-a.top:]]), ""]
     L += ["## 依變更單"]
     for w in wins:
         inside = [r for r in rows if r["cr"] == w["id"]]
@@ -282,9 +338,12 @@ def write_textfile(path, rows, missing, now):
     fam("audit_actions", "Administrative actions seen in the report window, ignore list applied")
     for s in SOURCES:
         L.append(f'audit_actions{{source="{s}"}} {sum(1 for r in rows if r["source"] == s)}')
-    fam("audit_unattributed", "Administrative actions outside every change window")
+    fam("audit_unattributed", "Administrative actions outside every change window, admin workstations left out")
     for s in SOURCES:
-        L.append(f'audit_unattributed{{source="{s}"}} {sum(1 for r in rows if r["source"] == s and not r["cr"])}')
+        L.append(f'audit_unattributed{{source="{s}"}} {sum(1 for r in rows if r["source"] == s and not r["cr"] and not r["quiet"])}')
+    fam("audit_unattributed_quiet", "Administrative actions outside every change window from an admin workstation (--quiet-from)")
+    for s in SOURCES:
+        L.append(f'audit_unattributed_quiet{{source="{s}"}} {sum(1 for r in rows if r["source"] == s and r["quiet"])}')
     fam("audit_changes_without_marks", "Done change records in the window with no change-mark begin line")
     L.append(f"audit_changes_without_marks {len(missing)}")
     fam("audit_report_last_run_timestamp", "Unix time of the last audit-report run")
@@ -307,8 +366,12 @@ def main():
     ap.add_argument("--ignore", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "ignore.txt"))
     ap.add_argument("--limit", type=int, default=200000, help="rows per source; a week of SSH logins on a lab with key-based polling is tens of thousands")
     ap.add_argument("--top", type=int, default=50)
+    ap.add_argument("--quiet-from", default=os.environ.get("AUDIT_QUIET_FROM", ""),
+                    help="admin workstation addresses, space separated: their actions are marked and left out of audit_unattributed")
+    ap.add_argument("--session-lookback", default="24h", help="how far before the range to look for the login a sudo session started with")
     ap.add_argument("--out"); ap.add_argument("--textfile")
     a = ap.parse_args()
+    a.quiet = set(a.quiet_from.split())
     now = dt.datetime.now(dt.timezone.utc)
     if a.since and not a.until:  # the header and every query then say where the report stops
         a.until = now.isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -322,6 +385,7 @@ def main():
     lo, hi = bounds(a, now)
     rows = fetch(a)
     rows, ignored = attribute(rows, wins, load_ignore(a.ignore))
+    mark_quiet(rows, a.quiet, a, lo, hi)
     missing = marks_missing(wins, a, lo, hi)
     md = render(a, rows, ignored, wins, missing, now, lo, hi)
     if a.out:

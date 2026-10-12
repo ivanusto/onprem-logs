@@ -1,5 +1,12 @@
 # add to /etc/cron.d/onprem-logs on the collector (Day 27). The clone of
 # onprem-changes that Day 26's cron keeps in /opt/onprem-changes supplies the
-# change windows; CHANGES_DIR overrides the path.
+# change windows; CHANGES_DIR overrides the path. AUDIT_QUIET_FROM lists the
+# admin workstations (space separated addresses): their SSH logins, the sudo
+# in those login sessions and their FortiGate GUI logins stay in the reports,
+# marked, and are left out of audit_unattributed, so AuditUnattributedActions
+# does not stay on for every working hour. Use the addresses as the nodes see
+# them, and do not list an address that also stands for other people (a
+# subnet router that SNATs).
+AUDIT_QUIET_FROM="192.0.2.10 192.0.2.11"
 */10 * * * * metrics VL=http://127.0.0.1:9428 CHANGES_DIR=/opt/onprem-changes/changes /opt/onprem-logs/audit/audit-report.py --window 1h --textfile /var/lib/node_exporter/textfile/audit.prom --out /dev/null >> /var/log/onprem-logs/audit-report.log 2>&1
 45 8 * * 1  metrics VL=http://127.0.0.1:9428 CHANGES_DIR=/opt/onprem-changes/changes /opt/onprem-logs/audit/audit-report.py --window 7d --out /srv/reports/audit-$(date +\%F).md >> /var/log/onprem-logs/audit-report.log 2>&1
