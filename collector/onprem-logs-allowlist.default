@@ -1,7 +1,9 @@
 # /etc/default/onprem-logs-allowlist
 # DGX Spark x2 and PVE x2 send journald; the two NAS and the edge FortiGate
 # send syslog on 514; the FortiGate's event log comes on 515 (Day 27).
+# The primary NAS has two LAN addresses (.2 and .30) and sends from either;
+# list both (CR-2026-0013, 2026-10-12).
 JOURNALD_FROM="192.168.2.131 192.168.2.141 192.168.2.9 192.168.2.5"
-SYSLOG_FROM="192.168.2.2 192.168.2.22 192.168.2.99"
+SYSLOG_FROM="192.168.2.2 192.168.2.30 192.168.2.22 192.168.2.99"
 AUDIT_FROM="192.168.2.99"
 ADMIN_FROM=""
