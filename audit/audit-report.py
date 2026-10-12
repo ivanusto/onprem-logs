@@ -69,7 +69,7 @@ SOURCES = {
         "who": lambda r: r.get("tuser", ""),
         "what": lambda r: " ".join(x for x in (r.get("ttype", ""), r.get("tid", "")) if x) + f" ({r.get('SYSLOG_IDENTIFIER', '')})",
     },
-    # sudo on any journald host: "ivan : TTY=pts/0 ; PWD=... ; USER=root ;
+    # sudo on any journald host: "ops : TTY=pts/0 ; PWD=... ; USER=root ;
     # COMMAND=...". Without a terminal there is no TTY= field, and a refused
     # sudo says why in the same position ("a password is required ; ...")
     "sudo": {

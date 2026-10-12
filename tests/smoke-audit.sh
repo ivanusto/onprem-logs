@@ -42,10 +42,10 @@ earlier=$((now - 1800))     # 30 minutes ago: outside the change window below
 {
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=pve-t\n_SYSTEMD_UNIT=pvedaemon.service\nSYSLOG_IDENTIFIER=pve-ha-lrm\nPRIORITY=6\nMESSAGE=<root@pam> starting task UPID:pve-t:0000A1B2:00C3D4E5:68E9F000:qmstart:100:root@pam:\n\n' "$(us "$now")"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=pve-t\n_SYSTEMD_UNIT=pve-daily-update.service\nSYSLOG_IDENTIFIER=pveupdate\nPRIORITY=6\nMESSAGE=<root@pam> starting task UPID:pve-t:0000A1B3:00C3D4E6:68E9F001:aptupdate::root@pam:\n\n' "$(us "$now")"
-  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=sudo\nPRIORITY=5\nMESSAGE=    ivan : TTY=pts/0 ; PWD=/home/ivan ; USER=root ; COMMAND=/usr/bin/systemctl restart grafana\n\n' "$(us "$earlier")"
-  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=sudo\nPRIORITY=3\nMESSAGE=  ivan : a password is required ; PWD=/home/ivan ; USER=root ; COMMAND=/usr/bin/true\n\n' "$(us "$earlier")"
+  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=sudo\nPRIORITY=5\nMESSAGE=    ops : TTY=pts/0 ; PWD=/home/ops ; USER=root ; COMMAND=/usr/bin/systemctl restart grafana\n\n' "$(us "$earlier")"
+  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=sudo\nPRIORITY=3\nMESSAGE=  ops : a password is required ; PWD=/home/ops ; USER=root ; COMMAND=/usr/bin/true\n\n' "$(us "$earlier")"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=pve-t\n_SYSTEMD_UNIT=ssh.service\nSYSLOG_IDENTIFIER=sshd-session\nPRIORITY=6\nMESSAGE=Accepted publickey for root from 10.0.0.10 port 50000 ssh2: ED25519 SHA256:abc\n\n' "$(us "$now")"
-  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=ssh.service\nSYSLOG_IDENTIFIER=sshd\nPRIORITY=6\nMESSAGE=Accepted password for ivan from 10.0.0.2 port 50001 ssh2\n\n' "$(us "$earlier")"
+  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=ssh.service\nSYSLOG_IDENTIFIER=sshd\nPRIORITY=6\nMESSAGE=Accepted password for ops from 10.0.0.2 port 50001 ssh2\n\n' "$(us "$earlier")"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=change\nPRIORITY=5\nMESSAGE=CR-2026-0004 begin smoke change\n\n' "$(us $((now - 7000)))"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=change\nPRIORITY=5\nMESSAGE=CR-2026-0001 begin smoke change\n\n' "$(us $((now - 60)))"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=change\nPRIORITY=5\nMESSAGE=CR-2026-0001 end smoke change\n\n' "$(us $((now + 60)))"
@@ -76,9 +76,9 @@ rec CR-2026-0004 "done" "$(iso $((now - 7200)))" "$(iso $((now - 2400)))" smoke
 
 python3 -I "$here/audit/audit-report.py" --vl "$VL" --window 1d --changes "$tmp/changes" --out "$tmp/r.md" --textfile "$tmp/audit.prom"
 grep -q '^管理動作 8 筆（忽略清單排除 1 筆），有變更單的 4 筆，沒有的 4 筆$' "$tmp/r.md" || { echo "summary line wrong"; sed -n 1,6p "$tmp/r.md"; exit 1; }
-grep -q 'sudo | coll-t | ivan | as root: /usr/bin/systemctl restart grafana' "$tmp/r.md" || { echo "sudo row missing from unattributed"; cat "$tmp/r.md"; exit 1; }
-grep -q 'sudo | coll-t | ivan | REFUSED as root: /usr/bin/true' "$tmp/r.md" || { echo "refused sudo without a terminal missing"; cat "$tmp/r.md"; exit 1; }
-grep -q 'ssh-login | coll-t | ivan | login password from 10.0.0.2 |' "$tmp/r.md" || { echo "sshd (9.6) login missing"; cat "$tmp/r.md"; exit 1; }
+grep -q 'sudo | coll-t | ops | as root: /usr/bin/systemctl restart grafana' "$tmp/r.md" || { echo "sudo row missing from unattributed"; cat "$tmp/r.md"; exit 1; }
+grep -q 'sudo | coll-t | ops | REFUSED as root: /usr/bin/true' "$tmp/r.md" || { echo "refused sudo without a terminal missing"; cat "$tmp/r.md"; exit 1; }
+grep -q 'ssh-login | coll-t | ops | login password from 10.0.0.2 |' "$tmp/r.md" || { echo "sshd (9.6) login missing"; cat "$tmp/r.md"; exit 1; }
 grep -q 'ssh-login | pve-t | root | login publickey from 10.0.0.10 key ED25519 SHA256:abc' "$tmp/r.md" || { echo "sshd-session login missing"; cat "$tmp/r.md"; exit 1; }
 grep -q 'pve-task | pve-t | root@pam | qmstart 100 (pve-ha-lrm)' "$tmp/r.md" || { echo "pve task row missing"; cat "$tmp/r.md"; exit 1; }
 grep -q 'fortigate-login | fgt-t | admin | Admin login successful (https(10.0.0.10)) | 1 |' "$tmp/r.md" || { echo "login row missing"; cat "$tmp/r.md"; exit 1; }
