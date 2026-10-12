@@ -16,14 +16,20 @@ Each key=value line becomes one JSON line with
                                  it, and aup-report.py --from-file uses
                                  the same default
     source    "export"          so the rows can be told apart from the feed
+    <k>       <v>               one per --field k=v (Day 28: audit=fortigate,
+                                 so backfilled event rows land in the same
+                                 stream shape as the 515 listener's and in
+                                 the audit-<devname> archive source)
     _msg      the whole line
-and is sent to /insert/jsonline. Lines without a time are skipped and
-counted, never stamped with now. Prints lines/loaded/skipped.
+and is sent to /insert/jsonline; hostname, source and the --field keys are
+the stream fields. Lines without a time are skipped and counted, never
+stamped with now. Prints lines/loaded/skipped. --dry-run prints the JSON
+lines instead of sending them.
 
 Meant for a throwaway instance (aup-compare.sh, tests). Loading an export
 into the production collector would double-count whatever the feed already
-holds for those hours; if you must, the source="export" field is what to
-filter on.
+holds for those hours; if you must, the source field is what to filter on
+(CR-2026-0008 backfills a known hole with --source backfill).
 """
 import argparse, datetime as dt, json, re, sys, urllib.request
 
@@ -60,7 +66,16 @@ def main():
     ap.add_argument("--vl", default="http://127.0.0.1:19428")
     ap.add_argument("--source", default="export")
     ap.add_argument("--devname", default="FortiGate", help="for lines without devname (memory-log exports)")
+    ap.add_argument("--field", action="append", default=[], metavar="K=V",
+                    help="extra field on every row, also a stream field (e.g. audit=fortigate); repeatable")
+    ap.add_argument("--dry-run", action="store_true", help="print the JSON lines, send nothing")
     a = ap.parse_args()
+    extra = {}
+    for kv_arg in a.field:
+        k, sep, v = kv_arg.partition("=")
+        if not sep or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", k) or k in ("_time", "_msg", "hostname", "source"):
+            ap.error(f"--field wants k=v with a plain field name, got {kv_arg!r}")
+        extra[k] = v
     lines = loaded = skipped = 0
     body = []
     with open(a.file, encoding="utf-8", errors="replace") as f:
@@ -74,15 +89,22 @@ def main():
             if not kv or ts is None:
                 skipped += 1
                 continue
-            body.append(json.dumps({"_time": ts, "hostname": kv.get("devname") or a.devname, "source": a.source, "_msg": line}, ensure_ascii=False))
+            row = {"_time": ts, "hostname": kv.get("devname") or a.devname, "source": a.source}
+            row.update(extra)
+            row["_msg"] = line
+            body.append(json.dumps(row, ensure_ascii=False))
             loaded += 1
-    if body:
-        url = a.vl.rstrip("/") + "/insert/jsonline?_stream_fields=hostname,source&_time_field=_time&_msg_field=_msg"
+    if body and a.dry_run:
+        sys.stdout.write("\n".join(body) + "\n")
+    elif body:
+        stream = ",".join(["hostname", "source"] + sorted(extra))
+        url = a.vl.rstrip("/") + f"/insert/jsonline?_stream_fields={stream}&_time_field=_time&_msg_field=_msg"
         req = urllib.request.Request(url, data=("\n".join(body) + "\n").encode(), method="POST",
                                      headers={"Content-Type": "application/stream+json"})
         with urllib.request.urlopen(req, timeout=120) as r:
             r.read()
-    print(f"fortigate-export-load: {lines} lines, {loaded} loaded, {skipped} skipped (no key=value or no time)")
+    print(f"fortigate-export-load: {lines} lines, {loaded} loaded, {skipped} skipped (no key=value or no time)",
+          file=sys.stderr if a.dry_run else sys.stdout)
     return 0 if loaded else 1
 
 
