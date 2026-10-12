@@ -29,7 +29,7 @@ lines instead of sending them.
 Meant for a throwaway instance (aup-compare.sh, tests). Loading an export
 into the production collector would double-count whatever the feed already
 holds for those hours; if you must, the source field is what to filter on
-(CR-2026-0008 backfills a known hole with --source backfill).
+(CR-2026-0011 backfilled a known hole with --source backfill).
 """
 import argparse, datetime as dt, json, re, sys, urllib.request
 
