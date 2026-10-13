@@ -61,6 +61,9 @@ earlier=$((now - 1800))     # 30 minutes ago: outside the change window below
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=ssh.service\nSYSLOG_IDENTIFIER=sshd\nPRIORITY=6\nMESSAGE=Accepted publickey for amb from 10.0.0.3 port 50012 ssh2: ED25519 SHA256:other\n\n' "$((wu + 60500000))"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=systemd-logind.service\nSYSLOG_IDENTIFIER=systemd-logind\nPRIORITY=6\nMESSAGE=New session 78 of user amb.\n\n' "$((wu + 60520000))"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-78.scope\n_AUDIT_SESSION=78\nSYSLOG_IDENTIFIER=sudo\nPRIORITY=5\nMESSAGE=    amb : PWD=/home/amb ; USER=root ; COMMAND=/usr/bin/id\n\n' "$((wu + 63000000))"
+  # Day 29: two agent-gate decisions, an ALLOW inside CR-0001's window and a DENY an hour earlier
+  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=agent-gate\nPRIORITY=5\nMESSAGE=seq=7 principal=agent:ops operator=a cr=CR-2026-0001 tool=qdevice.restart_service level=L2 decision=ALLOW rc=0 hash=3f9c2a71b0e4d5c6\n\n' "$(us "$now")"
+  printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=agent-gate\nPRIORITY=5\nMESSAGE=seq=6 principal=agent:ops operator=a cr=CR-2026-0001 tool=qdevice.reboot level=L3 decision=DENY hash=aa11bb22cc33dd44\n\n' "$(us "$earlier")"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=change\nPRIORITY=5\nMESSAGE=CR-2026-0004 begin smoke change\n\n' "$(us $((now - 7000)))"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=change\nPRIORITY=5\nMESSAGE=CR-2026-0001 begin smoke change\n\n' "$(us $((now - 60)))"
   printf '__REALTIME_TIMESTAMP=%s\n_HOSTNAME=coll-t\n_SYSTEMD_UNIT=session-9.scope\nSYSLOG_IDENTIFIER=change\nPRIORITY=5\nMESSAGE=CR-2026-0001 end smoke change\n\n' "$(us $((now + 60)))"
@@ -90,7 +93,7 @@ rec CR-2026-0003 "done" "$(iso $((now - 10800)))" "$(iso $((now - 7200)))" smoke
 rec CR-2026-0004 "done" "$(iso $((now - 7200)))" "$(iso $((now - 2400)))" smoke
 
 python3 -I "$here/audit/audit-report.py" --vl "$VL" --window 1d --changes "$tmp/changes" --out "$tmp/r.md" --textfile "$tmp/audit.prom"
-grep -q '^管理動作 13 筆（忽略清單排除 1 筆），有變更單的 4 筆，沒有的 9 筆$' "$tmp/r.md" || { echo "summary line wrong"; sed -n 1,6p "$tmp/r.md"; exit 1; }
+grep -q '^管理動作 15 筆（忽略清單排除 1 筆），有變更單的 5 筆，沒有的 10 筆$' "$tmp/r.md" || { echo "summary line wrong"; sed -n 1,6p "$tmp/r.md"; exit 1; }
 grep -q 'sudo | coll-t | ops | as root: /usr/bin/systemctl restart grafana' "$tmp/r.md" || { echo "sudo row missing from unattributed"; cat "$tmp/r.md"; exit 1; }
 grep -q 'sudo | coll-t | ops | REFUSED as root: /usr/bin/true' "$tmp/r.md" || { echo "refused sudo without a terminal missing"; cat "$tmp/r.md"; exit 1; }
 grep -q 'ssh-login | coll-t | ops | login password from 10.0.0.2 |' "$tmp/r.md" || { echo "sshd (9.6) login missing"; cat "$tmp/r.md"; exit 1; }
@@ -100,11 +103,13 @@ grep -q 'fortigate-login | fgt-t | admin | Admin login successful (https(10.0.0.
 grep -q 'fortigate-config | fgt-t | admin | Edit firewall.policy 1 utm-status\[disable->enable\] (https(10.0.0.10))' "$tmp/r.md" || { echo "config row missing"; cat "$tmp/r.md"; exit 1; }
 grep -q '\*\*CR-2026-0001\*\* smoke CR-2026-0001（done' "$tmp/r.md" || { echo "CR-0001 section missing"; exit 1; }
 grep -q 'nas-event | nas-t | admin | Virtualization Station/Snapshots: \[Virtualization Station\] Created snapshot "CR-2026-0001-before"' "$tmp/r.md" || { echo "nas row missing"; cat "$tmp/r.md"; exit 1; }
+grep -q 'agent-gate | coll-t | agent:ops | DENY qdevice.reboot (L3) under CR-2026-0001 seq 6 hash aa11bb22cc33dd44' "$tmp/r.md" || { echo "agent-gate DENY row missing from unattributed"; cat "$tmp/r.md"; exit 1; }
+grep -q 'ALLOW qdevice.restart_service (L2) under CR-2026-0001 seq 7 hash 3f9c2a71b0e4d5c6' "$tmp/r.md" || { echo "agent-gate ALLOW row missing"; cat "$tmp/r.md"; exit 1; }
 grep -q 'aptupdate' "$tmp/r.md" && { echo "aptupdate should be ignored"; exit 1; }
 grep -q 'CR-2026-0004 | smoke' "$tmp/r.md" && { echo "CR-0004 has its begin mark inside its own window"; exit 1; }
 grep -q 'CR-2026-0003 | smoke CR-2026-0003' "$tmp/r.md" || { echo "CR-0003 should be listed without marks"; cat "$tmp/r.md"; exit 1; }
 grep -q 'CR-2026-0002' "$tmp/r.md" && { echo "a backfilled record is not expected to have marks"; exit 1; }
-for want in 'audit_actions{source="fortigate-config"} 1' 'audit_actions{source="pve-task"} 1' 'audit_actions{source="sudo"} 4' 'audit_actions{source="ssh-login"} 5' 'audit_actions{source="nas-event"} 1' \
+for want in 'audit_actions{source="fortigate-config"} 1' 'audit_actions{source="pve-task"} 1' 'audit_actions{source="sudo"} 4' 'audit_actions{source="agent-gate"} 2' 'audit_unattributed{source="agent-gate"} 1' 'audit_actions{source="ssh-login"} 5' 'audit_actions{source="nas-event"} 1' \
             'audit_unattributed{source="sudo"} 4' 'audit_unattributed{source="ssh-login"} 4' 'audit_unattributed_quiet{source="sudo"} 0' 'audit_unattributed{source="fortigate-login"} 1' 'audit_unattributed{source="fortigate-config"} 0' 'audit_changes_without_marks 1'; do
   grep -qF "$want" "$tmp/audit.prom" || { echo "textfile lacks: $want"; cat "$tmp/audit.prom"; exit 1; }
 done
@@ -112,7 +117,7 @@ done
 # an absolute range that misses every change record: all unattributed, no sections
 python3 -I "$here/audit/audit-report.py" --vl "$VL" --since "$(iso $((now - 3600)))" --until "$(iso $((now + 3600)))" --changes "$tmp/nochanges" > "$tmp/r2.md" 2>"$tmp/r2.err"
 grep -q 'no change records' "$tmp/r2.err" || { cat "$tmp/r2.err"; exit 1; }
-grep -q '有變更單的 0 筆，沒有的 13 筆' "$tmp/r2.md" || { sed -n 1,4p "$tmp/r2.md"; exit 1; }
+grep -q '有變更單的 0 筆，沒有的 15 筆' "$tmp/r2.md" || { sed -n 1,4p "$tmp/r2.md"; exit 1; }
 # the 1 h run the textfile cron does: CR-0004 ended inside it and its begin
 # mark is two hours old, outside the report range but inside its window
 python3 -I "$here/audit/audit-report.py" --vl "$VL" --window 1h --changes "$tmp/changes" --out /dev/null --textfile "$tmp/audit1h.prom"

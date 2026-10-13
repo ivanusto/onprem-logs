@@ -1,6 +1,6 @@
 # 稽核軌跡的 LogsQL（Day 27）
 
-六種管理動作，一個共同問題，這件事有沒有變更單。變更單的窗由 `audit-report.py` 從 onprem-changes 的 front matter 讀，這裡的查詢是人手查的版本。主機名稱是代稱。
+六種管理動作（Day 29 起七種，多了代理程式閘道的決定），一個共同問題，這件事有沒有變更單。變更單的窗由 `audit-report.py` 從 onprem-changes 的 front matter 讀，這裡的查詢是人手查的版本。主機名稱是代稱。
 
 ```
 # FortiGate 設定變更，誰從哪個介面改了什麼（cfgattr 是舊值到新值）
@@ -64,6 +64,13 @@ _time:1d _HOSTNAME:=collector ((SYSLOG_IDENTIFIER:in(sshd, sshd-session) "Accept
 
 # 變更單的標記本身（change-mark.sh 與操作者手敲的 logger -t change）
 _time:7d SYSLOG_IDENTIFIER:=change | fields _time, _HOSTNAME, _msg | sort by (_time)
+
+# 代理程式閘道的決定（Day 29，onprem-agent-gate）：誰、在哪張單底下、要做什麼、放不放，hash 是鏈結稽核檔那一筆的前 16 碼
+_time:7d SYSLOG_IDENTIFIER:=agent-gate "decision="
+  | extract "seq=<seq> principal=<who> operator=<operator> cr=<cr> tool=<tool> level=<level> decision=<decision> " | extract "hash=<hash>"
+  | fields _time, seq, who, cr, tool, level, decision, hash | sort by (_time)
+# 被拒絕的呼叫，與拒絕的理由在收集端 gatectl tail 裡
+_time:7d SYSLOG_IDENTIFIER:=agent-gate "decision=DENY" | fields _time, _msg
 ```
 
 寫法上的兩點。`audit:=fortigate` 是 515 監聽器加的欄位，比 `hostname:=fgt-edge` 更準，後者也會抓到 514 的 traffic。`extract` 的樣式裡 `UPID:` 後的欄位以冒號分隔，最後一個 `:` 要寫在樣式裡，否則 `tuser` 會把後面的字串一起吃掉。

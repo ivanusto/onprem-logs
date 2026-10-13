@@ -109,6 +109,17 @@ SOURCES = {
     # Computer name: z, Application: a, Category: c, Content: ..." (Category
     # is missing on some lines); Users is "---" for what the NAS did on its
     # own and for some GUI actions too (a Virtualization Station snapshot)
+    # onprem-agent-gate (Day 29): one line per gate decision, on the
+    # collector. principal is the agent (or the human who approved / stopped),
+    # cr is the record the call named; the hash prefix ties the line to the
+    # chained audit.jsonl record (gatectl verify --vl checks the other way)
+    "agent-gate": {
+        "filter": 'SYSLOG_IDENTIFIER:=agent-gate "decision="',
+        "pipes": 'extract "seq=<seq> principal=<who> operator=<operator> cr=<cr> tool=<tool> level=<level> decision=<decision> " | extract "hash=<hash>" | rename _HOSTNAME as host',
+        "fields": ["host", "seq", "who", "operator", "cr", "tool", "level", "decision", "hash"],
+        "who": lambda r: r.get("who", "").strip(),
+        "what": lambda r: f"{r.get('decision', '').strip()} {r.get('tool', '')} ({r.get('level', '')}) under {r.get('cr', '')} seq {r.get('seq', '')} hash {r.get('hash', '').strip()[:16]}",
+    },
     "nas-event": {
         "filter": '"event log:"',
         "pipes": 'extract "Users: <who>, Source IP: <ip>," | extract "Application: <app>, " | extract "Category: <cat>, " | extract "Content: <content>" | rename hostname as host',
